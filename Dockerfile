@@ -105,9 +105,12 @@ RUN pip install -r requirements/edx/base-minus-local.txt
 # Must be done after Python requirements, since nodeenv is installed
 # via pip.
 # The node environment is already 'activated' because its .../bin was put on $PATH.
-RUN nodeenv /edx/app/edxapp/nodeenv --node=16.14.0 --npm=8.5.x --prebuilt
-COPY package.json package.json
-COPY package-lock.json package-lock.json
+RUN nodeenv /edx/app/edxapp/nodeenv --node=12.11.1  --prebuilt
+RUN npm install -g npm@8.5.x
+# RUN mkdir /root/.ssh && chmod 0700 /root/.ssh
+# RUN ssh-keyscan -t rsa github.com >> /root/.ssh/known_hosts
+COPY package.json .
+COPY package-lock.json .
 RUN npm set progress=false && npm install
 
 # Copy over remaining parts of repository (including all code).
