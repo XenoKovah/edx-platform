@@ -303,7 +303,7 @@ def add_users_to_cohort(request, course_key_string, cohort_id):
     """
     # this is a string when we get it here
     course_key = CourseKey.from_string(course_key_string)
-    get_course_with_access(request.user, 'staff', course_key)
+    get_course_with_access(request.user, 'load', course_key)
 
     try:
         cohort = cohorts.get_cohort_by_id(course_key, cohort_id)
