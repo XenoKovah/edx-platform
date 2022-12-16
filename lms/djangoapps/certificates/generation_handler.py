@@ -11,6 +11,7 @@ import logging
 from edx_toggles.toggles import LegacyWaffleFlagNamespace
 
 from common.djangoapps.course_modes import api as modes_api
+from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.models import CourseEnrollment
 from lms.djangoapps.certificates.models import (
     CertificateInvalidation,
@@ -24,6 +25,7 @@ from lms.djangoapps.certificates.utils import emit_certificate_event, has_html_c
 from lms.djangoapps.grades.api import CourseGradeFactory
 from lms.djangoapps.instructor.access import list_with_level
 from lms.djangoapps.verify_student.services import IDVerificationService
+from openedx.core.djangoapps.agreements.toggles import is_integrity_signature_enabled
 from openedx.core.djangoapps.waffle_utils import CourseWaffleFlag
 from xmodule.modulestore.django import modulestore
 
@@ -218,14 +220,27 @@ def _can_generate_certificate_common(user, course_key):
         log.info(f'{user.id} : {course_key} does not have an enrollment. Certificate cannot be generated.')
         return False
 
-    if not modes_api.is_eligible_for_certificate(enrollment_mode):
+    #if not modes_api.is_eligible_for_certificate(enrollment_mode):
+    is_eligible_for_cert = modes_api.is_eligible_for_certificate(enrollment_mode)
+    if not is_eligible_for_cert:
         log.info(f'{user.id} : {course_key} has an enrollment mode of {enrollment_mode}, which is not eligible for a '
                  f'certificate. Certificate cannot be generated.')
         return False
 
-    if not IDVerificationService.user_is_verified(user):
-        log.info(f'{user.id} does not have a verified id. Certificate cannot be generated for {course_key}.')
-        return False
+    #if not IDVerificationService.user_is_verified(user):
+    #    log.info(f'{user.id} does not have a verified id. Certificate cannot be generated for {course_key}.')
+    #    return False
+
+    # If the IDV check fails we then check if the course-run requires ID verification. Honor and Professional-No-ID
+    # modes do not require IDV for certificate generation.
+    if _required_verification_missing(course_key, user):
+        if enrollment_mode not in CourseMode.NON_VERIFIED_MODES:
+            log.info(f'{user.id} does not have a verified id. Certificate cannot be generated for {course_key}.')
+            return False
+
+        log.info(f'{user.id} : {course_key} is eligible for a certificate without requiring a verified ID. '
+                 'Skipping results of the ID verification check.')
+
 
     if not _can_generate_certificate_for_status(user, course_key):
         return False
@@ -393,6 +408,12 @@ def generate_user_certificates(student, course_key, course=None, insecure=False,
         })
     return cert.status
 
+
+def _required_verification_missing(course_key, user):
+    """
+    Return true if IDV is required for this course and the user does not have it
+    """
+    return not is_integrity_signature_enabled(course_key) and not IDVerificationService.user_is_verified(user)
 
 def regenerate_user_certificates(student, course_key, course=None,
                                  forced_grade=None, template_file=None, insecure=False):
