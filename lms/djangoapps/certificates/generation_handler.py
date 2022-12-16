@@ -23,6 +23,7 @@ from lms.djangoapps.certificates.utils import has_html_certificates_enabled
 from lms.djangoapps.grades.api import CourseGradeFactory
 from lms.djangoapps.instructor.access import is_beta_tester
 from lms.djangoapps.verify_student.services import IDVerificationService
+from openedx.core.djangoapps.agreements.toggles import is_integrity_signature_enabled
 from openedx.core.djangoapps.content.course_overviews.api import get_course_overview_or_none
 
 log = logging.getLogger(__name__)
@@ -301,7 +302,9 @@ def _can_set_cert_status_common(user, course_key, enrollment_mode):
     if enrollment_mode is None:
         return False
 
-    if not modes_api.is_eligible_for_certificate(enrollment_mode):
+#    if not modes_api.is_eligible_for_certificate(enrollment_mode):
+    is_eligible_for_cert = modes_api.is_eligible_for_certificate(enrollment_mode)
+    if not is_eligible_for_cert:
         return False
 
     course_overview = get_course_overview_or_none(course_key)
