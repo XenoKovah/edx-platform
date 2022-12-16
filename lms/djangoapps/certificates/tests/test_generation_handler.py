@@ -5,6 +5,8 @@ import logging
 from unittest import mock
 
 import ddt
+from django.conf import settings
+from django.test import override_settings
 from edx_toggles.toggles.testutils import override_waffle_flag
 
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
@@ -35,11 +37,13 @@ log = logging.getLogger(__name__)
 
 BETA_TESTER_METHOD = 'lms.djangoapps.certificates.generation_handler._is_beta_tester'
 CCX_COURSE_METHOD = 'lms.djangoapps.certificates.generation_handler._is_ccx_course'
+INTEGRITY_ENABLED_METHOD = 'lms.djangoapps.certificates.generation_handler.is_integrity_signature_enabled'
 ID_VERIFIED_METHOD = 'lms.djangoapps.verify_student.services.IDVerificationService.user_is_verified'
 PASSING_GRADE_METHOD = 'lms.djangoapps.certificates.generation_handler._has_passing_grade'
 WEB_CERTS_METHOD = 'lms.djangoapps.certificates.generation_handler.has_html_certificates_enabled'
 
 
+@mock.patch(INTEGRITY_ENABLED_METHOD, mock.Mock(return_value=False))
 @override_waffle_flag(CERTIFICATES_USE_ALLOWLIST, active=True)
 @mock.patch(ID_VERIFIED_METHOD, mock.Mock(return_value=True))
 @mock.patch(WEB_CERTS_METHOD, mock.Mock(return_value=True))
@@ -168,12 +172,22 @@ class AllowlistTests(ModuleStoreTestCase):
         assert can_generate_certificate_task(self.user, self.course_run_key)
         assert generate_certificate_task(self.user, self.course_run_key)
 
-    def test_can_generate_not_verified(self):
+#    def test_can_generate_not_verified(self):
+    @ddt.data(False, True)
+    def test_can_generate_not_verified(self, idv_retired):
         """
         Test handling when the user's id is not verified
         """
-        with mock.patch(ID_VERIFIED_METHOD, return_value=False):
-            assert not _can_generate_allowlist_certificate(self.user, self.course_run_key)
+#        with mock.patch(ID_VERIFIED_METHOD, return_value=False):
+#            assert not _can_generate_allowlist_certificate(self.user, self.course_run_key)
+        with mock.patch(ID_VERIFIED_METHOD, return_value=False), \
+                mock.patch(INTEGRITY_ENABLED_METHOD, return_value=idv_retired):
+            self.assertEqual(idv_retired,
+                             _can_generate_allowlist_certificate(self.user, self.course_run_key, self.enrollment_mode))
+            self.assertIsNot(idv_retired,
+                             _set_allowlist_cert_status(
+                                 self.user, self.course_run_key,
+                                 self.enrollment_mode, self.grade) == CertificateStatuses.unverified)
 
     def test_can_generate_not_enrolled(self):
         """
@@ -253,6 +267,32 @@ class AllowlistTests(ModuleStoreTestCase):
             assert not _can_generate_allowlist_certificate(self.user, self.course_run_key)
 
 
+    def test_generate_allowlist_honor_cert(self):
+        """
+        Test that verifies we can generate an Honor cert for an Open edX installation configured to support Honor
+        certificates.
+        """
+        course_run = CourseFactory()
+        course_run_key = course_run.id  # pylint: disable=no-member
+        enrollment_mode = CourseMode.HONOR
+        CourseEnrollmentFactory(
+            user=self.user,
+            course_id=course_run_key,
+            is_active=True,
+            mode=enrollment_mode,
+        )
+
+        CertificateAllowlistFactory.create(course_id=course_run_key, user=self.user)
+
+        # Enable Honor Certificates and verify we can generate an AllowList certificate
+        with override_settings(FEATURES={**settings.FEATURES, 'DISABLE_HONOR_CERTIFICATES': False}):
+            assert _can_generate_allowlist_certificate(self.user, course_run_key, enrollment_mode)
+
+        # Disable Honor Certificates and verify we cannot generate an AllowList certificate
+        with override_settings(FEATURES={**settings.FEATURES, 'DISABLE_HONOR_CERTIFICATES': True}):
+            assert not _can_generate_allowlist_certificate(self.user, course_run_key, enrollment_mode)
+
+@mock.patch(INTEGRITY_ENABLED_METHOD, mock.Mock(return_value=False))
 @override_waffle_flag(CERTIFICATES_USE_UPDATED, active=True)
 @mock.patch(ID_VERIFIED_METHOD, mock.Mock(return_value=True))
 @mock.patch(CCX_COURSE_METHOD, mock.Mock(return_value=False))
