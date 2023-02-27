@@ -124,7 +124,7 @@ class VideoFields:
         help=_("Specify whether the transcripts appear with the video by default."),
         display_name=_("Show Transcript"),
         scope=Scope.settings,
-        default=True
+        default=False
     )
     # Data format: {'de': 'german_translation', 'uk': 'ukrainian_translation'}
     transcripts = Dict(
