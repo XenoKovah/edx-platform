@@ -566,7 +566,7 @@ def _send_course_email(entry_id, email_id, to_list, global_email_context, subtas
                     f"{recipient_num}/{total_recipients}, Recipient UserId: {current_recipient['pk']}"
                 )
                 message.send()
-            except (SMTPDataError, SMTPSenderRefused) as exc:
+            except (SMTPDataError, SMTPSenderRefused, SMTPServerDisconnected) as exc:
                 # According to SMTP spec, we'll retry error codes in the 4xx range.  5xx range indicates hard failure.
                 total_recipients_failed += 1
                 log.exception(
