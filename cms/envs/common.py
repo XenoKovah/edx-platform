@@ -1984,6 +1984,18 @@ ADVANCED_PROBLEM_TYPES = [
     {
         'component': 'staffgradedxblock',
         'boilerplate_name': None
+    },
+    {
+        'component': 'markdown',
+        'boilerplate_name': None
+    },
+    {
+        'component': 'done',
+        'boilerplate_name': None
+    },
+    {
+        'component': 'library_content',
+        'boilerplate_name': None
     }
 ]
 
