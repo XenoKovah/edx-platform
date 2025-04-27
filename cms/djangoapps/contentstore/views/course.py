@@ -1000,6 +1000,7 @@ def create_new_course_in_store(store, user, org, number, run, fields):
     fields.update({
         'language': getattr(settings, 'DEFAULT_COURSE_LANGUAGE', 'en'),
         'cert_html_view_enabled': True,
+        'advanced_modules': getattr(settings, 'DEFAULT_ADVANCED_MODULES', [ 'library_content', 'done', 'markdown' ]),
     })
 
     with modulestore().default_store(store):
