@@ -1001,6 +1001,11 @@ def create_new_course_in_store(store, user, org, number, run, fields):
         'language': getattr(settings, 'DEFAULT_COURSE_LANGUAGE', 'en'),
         'cert_html_view_enabled': True,
         'advanced_modules': getattr(settings, 'DEFAULT_ADVANCED_MODULES', [ 'library_content', 'done', 'markdown' ]),
+        'course_visibility': "private",
+        'catalog_visibility': "none",
+        'invitation_only': True,
+        'showanswer': "attempted",
+        'video_speed_optimizations': False
     })
 
     with modulestore().default_store(store):
