@@ -1,0 +1,3 @@
+{% load i18n %}
+
+{% blocktrans %} New discussion post in {{ course_name }}: {{ thread_title }} {% endblocktrans %}
