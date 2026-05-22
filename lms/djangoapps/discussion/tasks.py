@@ -11,6 +11,7 @@ from celery_utils.logged_task import LoggedTask
 from django.conf import settings  # lint-amnesty, pylint: disable=unused-import
 from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.contrib.sites.models import Site
+from django.utils.html import strip_tags
 from edx_ace import ace
 from edx_ace.recipient import Recipient
 from edx_ace.utils import date
@@ -128,8 +129,25 @@ def send_ace_message_for_reported_content(context):  # lint-amnesty, pylint: dis
 def send_ace_message_for_new_thread(context):  # lint-amnesty, pylint: disable=missing-function-docstring
     """
     Notify a course's discussion moderators that a learner created a new thread.
+
+    Sending is intentionally delayed (see ``send_message_for_new_thread``) to give
+    the author a brief grace period to edit or delete the post. The thread is
+    therefore re-fetched here so the email reflects the latest title/body, and the
+    notification is skipped entirely if the thread was deleted in the meantime.
     """
     context['course_id'] = CourseKey.from_string(context['course_id'])
+
+    try:
+        cc_thread = cc.Thread(id=context['thread_id']).retrieve()
+    except cc.CommentClientRequestError:
+        log.info(
+            'New thread moderator notification: thread %s no longer exists; not sending.',
+            context['thread_id'],
+        )
+        return
+    context['thread_title'] = cc_thread.title
+    context['thread_body'] = strip_tags(cc_thread.body)
+
     context['course_name'] = modulestore().get_course(context['course_id']).display_name
     context['site'] = Site.objects.get(id=context['site_id'])
 
