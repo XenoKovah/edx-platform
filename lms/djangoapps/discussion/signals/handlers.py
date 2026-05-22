@@ -17,6 +17,7 @@ from lms.djangoapps.discussion.rest_api.tasks import (
     send_response_notifications,
     send_thread_created_notification
 )
+from lms.djangoapps.discussion.toggles import ENABLE_NEW_THREAD_MODERATOR_NOTIFICATIONS
 from openedx.core.djangoapps.django_comment_common import signals
 from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from openedx.core.djangoapps.theming.helpers import get_current_site
@@ -101,6 +102,24 @@ def send_reported_content_notification(sender, user, post, **kwargs):
     course_key = CourseKey.from_string(post.course_id)
     course = modulestore().get_course(course_key)
     DiscussionNotificationSender(post, course, user).send_reported_content_notification()
+
+
+@receiver(signals.thread_created)
+def send_new_thread_moderator_notification(sender, user, post, **kwargs):  # lint-amnesty, pylint: disable=missing-function-docstring, unused-argument
+    course_key = CourseKey.from_string(str(post.course_id))
+    if not ENABLE_NEW_THREAD_MODERATOR_NOTIFICATIONS.is_enabled(course_key):
+        log.info(
+            'Discussion: new-thread moderator notifications not enabled for course %s. '
+            'Not sending message about thread: %s.', course_key, post.id
+        )
+        return
+
+    current_site = get_current_site()
+    if current_site is None:
+        log.info('Discussion: No current site, not sending notification about thread: %s.', post.id)
+        return
+
+    send_message_for_new_thread(post, current_site)
 
 
 def create_message_context(comment, site):
@@ -194,3 +213,26 @@ def create_response_endorsed_on_thread_notification(*args, **kwargs):
     course_key_str = comment.attributes['course_id']
     endorsed_by = kwargs['user'].id
     send_response_endorsed_notifications.apply_async(args=[thread_id, kwargs['post'].id, course_key_str, endorsed_by])
+
+
+def create_message_context_for_new_thread(post, site):
+    """
+    Create message context for a newly created thread, sent to course moderators.
+
+    ``post`` is the comment_client Thread that was just created.
+    """
+    return {
+        'course_id': str(post.course_id),
+        'thread_id': post.id,
+        'thread_title': post.title,
+        'thread_body': strip_tags(post.body),
+        'thread_author_id': post.user_id,
+        'thread_created_at': post.created_at,  # comment_client models dates are already serialized
+        'thread_commentable_id': post.commentable_id,
+        'site_id': site.id,
+    }
+
+
+def send_message_for_new_thread(post, site):  # lint-amnesty, pylint: disable=missing-function-docstring
+    context = create_message_context_for_new_thread(post, site)
+    tasks.send_ace_message_for_new_thread.apply_async(args=[context], countdown=120)

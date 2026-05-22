@@ -81,6 +81,12 @@ class CommentNotification(BaseMessageType):
     """
 
 
+class NewThreadNotification(BaseMessageType):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.options['transactional'] = True
+
+
 @shared_task(base=LoggedTask)
 @set_code_owner_attribute
 def send_ace_message(context):  # lint-amnesty, pylint: disable=missing-function-docstring
@@ -144,6 +150,30 @@ def send_ace_message_for_reported_content(context):  # lint-amnesty, pylint: dis
                 message_context
             )
             log.info(f'Sending forum reported content email notification with context {message_context}')
+            ace.send(message)
+
+
+@shared_task(base=LoggedTask)
+@set_code_owner_attribute
+def send_ace_message_for_new_thread(context):  # lint-amnesty, pylint: disable=missing-function-docstring
+    """
+    Notify a course's discussion moderators that a learner created a new thread.
+    """
+    context['course_id'] = CourseKey.from_string(context['course_id'])
+    context['course_name'] = modulestore().get_course(context['course_id']).display_name
+    context['site'] = Site.objects.get(id=context['site_id'])
+
+    moderators = get_users_with_moderator_roles(context)
+    thread_author = User.objects.get(id=context['thread_author_id'])
+    for moderator in moderators:
+        with emulate_http_request(site=context['site'], user=thread_author):
+            message_context = _build_message_context_for_new_thread(context, moderator)
+            message = NewThreadNotification().personalize(
+                Recipient(moderator.id, moderator.email),
+                _get_course_language(context['course_id']),
+                message_context
+            )
+            log.info(f'Sending new thread moderator email notification with context {message_context}')
             ace.send(message)
 
 
@@ -285,6 +315,22 @@ def _build_message_context_for_reported_content(context, moderator):  # lint-amn
     message_context.update({
         'post_link': _get_mfe_thread_url(context) if use_mfe_url else _get_thread_url(context, settings.LMS_BASE),
         'moderator_email': moderator.email,
+    })
+    return message_context
+
+
+def _build_message_context_for_new_thread(context, moderator):  # lint-amnesty, pylint: disable=missing-function-docstring
+    message_context = get_base_template_context(context['site'])
+    message_context.update(context)
+    show_mfe_post_link = ENABLE_DISCUSSIONS_MFE.is_enabled(context['course_id'])
+    post_link = _get_mfe_thread_url(context) if show_mfe_post_link else _get_thread_url(context)
+    thread_author = User.objects.get(id=context['thread_author_id'])
+
+    message_context.update({
+        'thread_username': thread_author.username,
+        'post_link': post_link,
+        'moderator_email': moderator.email,
+        'thread_created_at': date.deserialize(context['thread_created_at']),
     })
     return message_context
 
