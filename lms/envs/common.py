@@ -4281,27 +4281,69 @@ ACCOUNT_VISIBILITY_CONFIGURATION["admin_fields"] = (
 
 # The current list of social platforms to be shown to the user.
 #
-# url_stub represents the host URL, it must end with a forward
-# slash and represent the profile at https://www.[url_stub][username]
+# Two kinds of entries are supported:
+#
+# 1) "Stub" platforms describe a single canonical host. `url_stub` is the host
+#    (plus any fixed path prefix); it must end with a forward slash and represent
+#    the profile at https://[host_prefix][url_stub][username]. `host_prefix`
+#    defaults to "www." and may be set to "" for hosts that do not serve www.
+#    `alt_url_stubs` is an optional list of additional hosts accepted on input
+#    and normalized to the canonical `url_stub` (e.g. twitter.com -> x.com).
+#
+# 2) "Free-form" platforms (set `url_type` to 'free' and omit `url_stub`) have
+#    no single canonical host. The user-supplied value is stored verbatim after
+#    being validated as a safe absolute http(s) URL -- used for things like a
+#    personal blog or a federated network (e.g. Mastodon).
 #
 # The example will be used as a placeholder in the social link
 # input field as well as in some messaging describing an example of a
 # valid link.
 SOCIAL_PLATFORMS = {
-    'facebook': {
-        'display_name': 'Facebook',
-        'url_stub': 'facebook.com/',
-        'example': 'https://www.facebook.com/username'
-    },
-    'twitter': {
-        'display_name': 'Twitter',
-        'url_stub': 'twitter.com/',
-        'example': 'https://www.twitter.com/username'
+    'blog': {
+        'display_name': 'Blog',
+        'url_type': 'free',
+        'example': 'https://example.com/'
     },
     'linkedin': {
         'display_name': 'LinkedIn',
         'url_stub': 'linkedin.com/in/',
-        'example': 'www.linkedin.com/in/username'
+        'example': 'https://www.linkedin.com/in/username'
+    },
+    'github': {
+        'display_name': 'GitHub',
+        'url_stub': 'github.com/',
+        'host_prefix': '',
+        'example': 'https://github.com/username'
+    },
+    'gitlab': {
+        'display_name': 'GitLab',
+        'url_stub': 'gitlab.com/',
+        'host_prefix': '',
+        'example': 'https://gitlab.com/username'
+    },
+    'mastodon': {
+        'display_name': 'Mastodon',
+        'url_type': 'free',
+        'example': 'https://infosec.exchange/@username'
+    },
+    'bluesky': {
+        'display_name': 'Bluesky',
+        'url_stub': 'bsky.app/profile/',
+        'host_prefix': '',
+        'example': 'https://bsky.app/profile/username.bsky.social'
+    },
+    'twitter': {
+        'display_name': 'X (Twitter)',
+        'url_stub': 'x.com/',
+        'alt_url_stubs': ['twitter.com/'],
+        'host_prefix': '',
+        'example': 'https://x.com/username'
+    },
+    'discord': {
+        'display_name': 'Discord',
+        'url_stub': 'discord.com/users/',
+        'host_prefix': '',
+        'example': 'https://discord.com/users/000000000000000000'
     }
 }
 
