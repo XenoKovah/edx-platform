@@ -543,7 +543,7 @@
 </script>
 <script aria-hidden="true" type="text/template" id="post-user-display-template">
 <% if (username) { %>
-<a href="<%- user_url %>" class="username"><%- username %></a>
+<a href="https://apps.ap.ost2.fyi/profile/u/<%- username %>" class="username"><%- username %></a><a href="https://apps.ap.ost2.fyi/profile/u/<%- username %>" class="username ost2-profile-link" style="margin-left:.25rem">(profile)</a>
     <% if (is_community_ta) { %>
     <span class="user-label-community-ta"><%- gettext("(Community TA)") %></span>
     <% } else if (is_staff) { %>
