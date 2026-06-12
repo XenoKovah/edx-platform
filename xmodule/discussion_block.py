@@ -213,6 +213,19 @@ class _BuiltInDiscussionXBlock(XBlock, StudioEditableXBlockMixin,
 
         return fragment
 
+    def public_view(self, context=None):
+        """
+        OST2: anonymous (logged-out) view for courses with public visibility.
+
+        student_view already branches on an unauthenticated user (it shows a
+        sign-in prompt and grants no posting permissions), so reuse it for a
+        read-only public render instead of XModuleMixin.public_view's
+        "Discussion is only accessible to enrolled learners" banner. The
+        matching read endpoints (inline_discussion / single_thread) admit
+        anonymous users on public courses via the same patch set.
+        """
+        return self.student_view(context)
+
     def author_view(self, context=None):  # pylint: disable=unused-argument
         """
         Renders author view for Studio.

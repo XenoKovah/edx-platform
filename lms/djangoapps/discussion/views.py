@@ -143,8 +143,9 @@ def get_threads(request, course, user_info, discussion_id=None, per_page=THREADS
         # If the user did not select a sort key, use their last used sort key
         default_query_params['sort_key'] = user_info.get('default_sort_key') or default_query_params['sort_key']
 
-    elif request.GET.get('sort_key') != user_info.get('default_sort_key'):
+    elif request.user.is_authenticated and request.GET.get('sort_key') != user_info.get('default_sort_key'):
         # If the user clicked a sort key, update their default sort key
+        # (OST2: skipped for anonymous visitors, who have no comment-service user)
         cc_user = cc.User.from_django_user(request.user)
         cc_user.default_sort_key = request.GET.get('sort_key')
         cc_user.save(params={"course_id": str(course.id)})
@@ -210,16 +211,32 @@ def use_bulk_ops(view_func):
     return wrapped_view
 
 
-@login_required
 @use_bulk_ops
 def inline_discussion(request, course_key, discussion_id):
     """
     Renders JSON for DiscussionModules
+
+    OST2: @login_required removed so logged-out visitors can read inline
+    discussions on courses with public visibility. get_course_with_access
+    still gates anonymous users ('load' only passes for public courses), so
+    private courses behave exactly as before.
     """
     with function_trace('get_course_and_user_info'):
         course = get_course_with_access(request.user, 'load', course_key, check_if_enrolled=True)
-        cc_user = cc.User.from_django_user(request.user)
-        user_info = cc_user.to_dict(course_key=str(course_key))
+        if request.user.is_authenticated:
+            cc_user = cc.User.from_django_user(request.user)
+            user_info = cc_user.to_dict(course_key=str(course_key))
+        else:
+            # OST2: inert read-only stub; the shape the inline discussion JS
+            # (DiscussionUser) and get_annotated_content_info expect.
+            user_info = {
+                'id': None,
+                'username': None,
+                'upvoted_ids': [],
+                'downvoted_ids': [],
+                'subscribed_thread_ids': [],
+                'default_sort_key': None,
+            }
 
     try:
         with function_trace('get_threads'):
@@ -257,7 +274,7 @@ def inline_discussion(request, course_key, discussion_id):
         'is_commentable_divided': is_commentable_divided(course_key, discussion_id),
         'discussion_data': threads,
         'user_info': user_info,
-        'user_group_id': get_group_id_for_user(request.user, course_discussion_settings),
+        'user_group_id': get_group_id_for_user(request.user, course_discussion_settings) if request.user.is_authenticated else None,
         'annotated_content_info': annotated_content_info,
         'page': query_params['page'],
         'num_pages': query_params['num_pages'],
@@ -342,10 +359,11 @@ def redirect_thread_url_to_new_mfe(request, course_id, thread_id):
 
 
 @require_GET
-@login_required
 @use_bulk_ops
 def single_thread(request, course_key, discussion_id, thread_id):
     """
+    OST2: anonymous users allowed on public courses (see inline_discussion).
+
     Renders a response to display a single discussion thread.  This could either be a page refresh
     after navigating to a single thread, a direct link to a single thread, or an AJAX call from the
     discussions UI loading the responses/comments for a single thread.
@@ -356,8 +374,19 @@ def single_thread(request, course_key, discussion_id, thread_id):
     request.user.is_community_ta = utils.is_user_community_ta(request.user, course.id)
 
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        cc_user = cc.User.from_django_user(request.user)
-        user_info = cc_user.to_dict(course_key=str(course_key))
+        if request.user.is_authenticated:
+            cc_user = cc.User.from_django_user(request.user)
+            user_info = cc_user.to_dict(course_key=str(course_key))
+        else:
+            # OST2: inert read-only stub (see inline_discussion)
+            user_info = {
+                'id': None,
+                'username': None,
+                'upvoted_ids': [],
+                'downvoted_ids': [],
+                'subscribed_thread_ids': [],
+                'default_sort_key': None,
+            }
         is_staff = has_permission(request.user, 'openclose_thread', course.id)
 
         try:
@@ -370,7 +399,7 @@ def single_thread(request, course_key, discussion_id, thread_id):
             course,
             discussion_id=discussion_id,
             thread_id=thread_id,
-            raise_event=True,
+            raise_event=request.user.is_authenticated,  # OST2: track_forum_event needs user.roles
         )
 
         with function_trace("get_annotated_content_infos"):

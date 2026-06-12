@@ -30,6 +30,7 @@ from xmodule.x_module import (
     XModuleMixin,
     shim_xmodule_js,
     STUDENT_VIEW,
+    PUBLIC_VIEW,
 )
 
 _ = lambda text: text
@@ -310,6 +311,41 @@ class ItemBankMixin(
         """
         for block_type, block_id in self.selected_children():
             yield self.runtime.get_block(self.context_key.make_usage_key(block_type, block_id))
+
+    def public_view(self, context):
+        """
+        OST2: anonymous (logged-out) view for courses with public visibility.
+
+        Mirrors student_view's composition, but children are rendered with
+        their own public_view (so each child type keeps its anonymous
+        behavior) and the reset button is omitted. Without this, the block
+        falls back to XModuleMixin.public_view's "<name> is only accessible
+        to enrolled learners" banner.
+        """
+        fragment = Fragment()
+        contents = []
+        child_context = {} if not context else copy(context)
+
+        for child in self._get_selected_child_blocks():
+            if child is None:
+                logger.error('Skipping display for child block that is None')
+                continue
+            rendered_child = child.render(PUBLIC_VIEW, child_context)
+            fragment.add_fragment_resources(rendered_child)
+            contents.append({
+                'id': str(child.usage_key),
+                'content': rendered_child.content,
+            })
+
+        fragment.add_content(self.runtime.service(self, 'mako').render_lms_template('vert_module.html', {
+            'items': contents,
+            'xblock_context': context,
+            'show_bookmark_button': False,
+            'watched_completable_blocks': set(),
+            'completion_delay_ms': None,
+            'reset_button': False,
+        }))
+        return fragment
 
     def student_view(self, context):  # lint-amnesty, pylint: disable=missing-function-docstring
         fragment = Fragment()
