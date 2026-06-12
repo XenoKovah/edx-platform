@@ -589,6 +589,10 @@ class CourseAboutSearchIndexer(CoursewareSearchIndexer):
         AboutInfo("modes", AboutInfo.PROPERTY, AboutInfo.FROM_COURSE_MODE),
         AboutInfo("language", AboutInfo.PROPERTY, AboutInfo.FROM_COURSE_PROPERTY),
         AboutInfo("invitation_only", AboutInfo.PROPERTY, AboutInfo.FROM_COURSE_PROPERTY),
+        # OST2: index the course "is new" status so the catalog can show a New! badge.
+        # is_newish honors the Studio "Course Is New" override and falls back to the
+        # announcement/start-date heuristic when the flag is unset.
+        AboutInfo("is_newish", AboutInfo.PROPERTY, AboutInfo.FROM_COURSE_PROPERTY),
         AboutInfo("catalog_visibility", AboutInfo.PROPERTY, AboutInfo.FROM_COURSE_PROPERTY),
     ]
 
