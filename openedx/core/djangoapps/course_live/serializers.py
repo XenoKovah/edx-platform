@@ -186,6 +186,14 @@ class CourseLiveConfigurationSerializer(serializers.ModelSerializer):
         """
         Update LtiConfiguration
         """
+        # OST2: nothing to write to the LTI config (e.g. the MFE's
+        # disable payload omits `lti_configuration`, so lti_config is
+        # None). Building LtiSerializer(data=None).is_valid(raise=True)
+        # raised ValidationError 'No data provided' -> HTTP 400 and the
+        # generic 'We couldn't apply your changes' error. The FK is
+        # nullable, so just keep whatever config already exists.
+        if not lti_config:
+            return instance
         lti_serializer = LtiSerializer(
             instance.lti_configuration or None,
             data=lti_config,

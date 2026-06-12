@@ -115,7 +115,12 @@ class CourseLiveConfigurationView(APIView):
         """
         pii_sharing_allowed = get_lti_pii_sharing_state_for_course(course_id)
         provider = ProviderManager().get_enabled_providers().get(request.data.get('provider_type', ''), None)
-        if not pii_sharing_allowed and provider.requires_pii_sharing():
+        # OST2: guard against an empty/unknown provider_type. Without
+        # this, disabling Live with provider_type='' makes `provider`
+        # None and this line raised AttributeError -> HTTP 500. When
+        # provider is None the serializer below raises a clean
+        # ValidationError ('Provider type ... does not exist').
+        if not pii_sharing_allowed and provider and provider.requires_pii_sharing():
             return Response({
                 "pii_sharing_allowed": pii_sharing_allowed,
                 "message": "PII sharing is not allowed on this course"
