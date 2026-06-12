@@ -483,7 +483,10 @@ class CourseFields:  # lint-amnesty, pylint: disable=missing-class-docstring
     disable_progress_graph = Boolean(
         display_name=_("Disable Progress Graph"),
         help=_("Enter true or false. If true, students cannot view the progress graph."),
-        default=False,
+        # OST2: default flipped False->True so the learner Progress-page
+        # graph is OFF for every course that has not explicitly set this
+        # field. Courses with a stored value keep that value.
+        default=True,
         scope=Scope.settings
     )
     pdf_textbooks = List(
