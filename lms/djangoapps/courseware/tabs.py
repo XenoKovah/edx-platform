@@ -328,6 +328,11 @@ def get_course_tab_list(user, course):
     course_tab_list = []
     must_complete_ee = not user_can_skip_entrance_exam(user, course)
     for tab in xmodule_tab_list:
+        # OST2: hide the Dates tab platform-wide. Removed at the source so it
+        # never appears on any surface - learning MFE, Discussions MFE, or the
+        # course-leaderboard page (all read this tab list via course_metadata).
+        if tab.type == 'dates':
+            continue
         if must_complete_ee:
             # Hide all of the tabs except for 'Courseware'
             # Rename 'Courseware' tab to 'Entrance Exam'
