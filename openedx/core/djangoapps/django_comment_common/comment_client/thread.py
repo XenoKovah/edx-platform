@@ -82,6 +82,16 @@ class Thread(models.Model):
             else:
                 if user_id := params.get('user_id'):
                     params['user_id'] = str(user_id)
+                # OST2 patch: restore the per-topic filter the get_all
+                # branch stripped above (commentable_id was only encoded
+                # into the legacy Forum v1 URL). Without it, Forum v2's
+                # get_user_threads receives no commentable filter and the
+                # inline unit discussion lists every thread in the course
+                # instead of just this unit's topic.
+                if commentable_ids := query_params.get('commentable_ids'):
+                    params['commentable_ids'] = commentable_ids.split(',')
+                elif commentable_id := query_params.get('commentable_id'):
+                    params['commentable_ids'] = [commentable_id]
                 response = forum_api.get_user_threads(**params)
         else:
             response = utils.perform_request(
