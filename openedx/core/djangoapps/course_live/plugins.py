@@ -32,8 +32,15 @@ class LiveCourseApp(CourseApp):
     def is_available(cls, course_key: CourseKey) -> bool:
         """
         Live is available
+
+        OST2: hidden platform-wide. OST2 never uses in-platform live
+        conferencing (Zoom / BigBlueButton); returning False drops the Live
+        card from Studio's Pages & Resources and prevents it being enabled via
+        the API -- CourseAppsPluginManager.get_apps_available_for_course filters
+        on this. (Previously a request_started monkeypatch shipped by the
+        ost2_hide_live_app Tutor plugin.)
         """
-        return True
+        return False
 
     @classmethod
     def is_enabled(cls, course_key: CourseKey) -> bool:
