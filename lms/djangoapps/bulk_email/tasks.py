@@ -89,6 +89,47 @@ BULK_EMAIL_FAILURE_ERRORS = (
     SMTPException
 )
 
+# OST2: substrings that mark an SMTP response as a *temporary* provider-side sending-rate or
+# daily-quota throttle (Google Workspace / Gmail), rather than a permanent per-recipient failure.
+# Some of these arrive with a 5xx code (e.g. "550 5.4.5 Daily user sending limit exceeded") even
+# though they clear once the provider's rolling 24h window resets, so the affected recipients must
+# be DEFERRED and retried -- never dropped.  Overridable via BULK_EMAIL_RATE_LIMIT_RESPONSE_MARKERS.
+DEFAULT_RATE_LIMIT_RESPONSE_MARKERS = (
+    '4.7.0',           # Gmail temporary rate limiting ("Try again later, closing connection")
+    '4.7.28',          # Gmail IP/account rate limit
+    '5.4.5',           # Gmail "Daily user sending limit exceeded"
+    'rate limit',
+    'rate-limit',
+    'ratelimit',
+    'sending limit',
+    'sending quota',
+    'quota',
+    'try again later',
+    'too many',
+    'throttl',
+)
+
+
+def _is_sending_rate_limited(smtp_code, smtp_error):
+    """
+    Return True when an SMTP error response looks like a temporary provider-side sending-rate or
+    daily-quota throttle (which should be deferred and retried) rather than a permanent failure.
+
+    A bare ``421`` is always a "slow down / try again later" temporary condition; otherwise the
+    textual response is matched against ``settings.BULK_EMAIL_RATE_LIMIT_RESPONSE_MARKERS``.
+    """
+    if smtp_code == 421:
+        return True
+    markers = getattr(settings, 'BULK_EMAIL_RATE_LIMIT_RESPONSE_MARKERS', DEFAULT_RATE_LIMIT_RESPONSE_MARKERS)
+    if not markers:
+        return False
+    if isinstance(smtp_error, (bytes, bytearray)):
+        text = smtp_error.decode('utf-8', 'replace')
+    else:
+        text = str(smtp_error)
+    text = text.lower()
+    return any(str(marker).lower() in text for marker in markers)
+
 
 def _get_course_email_context(course):
     """
@@ -587,6 +628,19 @@ def _send_course_email(entry_id, email_id, to_list, global_email_context, subtas
                 )
                 if exc.smtp_code >= 400 and exc.smtp_code < 500:  # lint-amnesty, pylint: disable=no-else-raise
                     # This will cause the outer handler to catch the exception and retry the entire task.
+                    raise exc
+                elif _is_sending_rate_limited(exc.smtp_code, exc.smtp_error):
+                    # OST2: a 5xx that is really a temporary provider sending-rate / daily-quota
+                    # throttle (e.g. Gmail "550 5.4.5 Daily user sending limit exceeded").  This is
+                    # NOT a permanent per-recipient failure -- it clears when the provider's rolling
+                    # sending window resets.  Re-raise so the outer INFINITE_RETRY_ERRORS handler
+                    # DEFERS the whole remaining batch with exponential backoff (riding out the 24h
+                    # window) instead of silently dropping every remaining recipient one by one.
+                    log.warning(
+                        f"BulkEmail ==> Task: {parent_task_id}, SubTask: {task_id}, EmailId: {email_id}, "
+                        f"provider sending-rate/quota throttle ({exc.smtp_error}); deferring "
+                        f"{len(to_list)} remaining recipient(s) for retry."
+                    )
                     raise exc
                 else:
                     # This will fall through and not retry the message.
