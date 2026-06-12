@@ -599,6 +599,15 @@ class CourseNavigationBlocksView(RetrieveAPIView):
         """
         course_key_string = self.kwargs.get('course_key_string')
         course_key = CourseKey.from_string(course_key_string)
+        # OST2: anonymous (logged-out) visitors on public courses have no
+        # BlockCompletion rows, and BlockCompletion.objects.filter(
+        # user=<AnonymousUser>) raises "Cannot cast AnonymousUser to int",
+        # which 500s the navigation endpoint and empties the MFE course-outline
+        # sidebar. Mirror OutlineTabView's `if not request.user.is_anonymous`
+        # guard. (Population of the tree for anonymous users is already gated to
+        # public courses upstream in get(), so private courses are unaffected.)
+        if self.request.user.is_anonymous:
+            return {}
         completions = BlockCompletion.objects.filter(user=self.request.user, context_key=course_key).values_list(
             'block_key',
             'completion',
