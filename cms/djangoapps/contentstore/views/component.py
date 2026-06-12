@@ -90,6 +90,13 @@ DEFAULT_ADVANCED_MODULES = [
     'split_test',
     'survey',
     'word_cloud',
+    # OST2: make these advanced components available in every course's
+    # "Add New Component -> Advanced" picker without per-course "Advanced
+    # Module List" (advanced_modules) configuration. DEFAULT_ADVANCED_MODULES
+    # is merged with course.advanced_modules to build the picker list.
+    'markdown',
+    'done',
+    'library_content',
 ]
 
 
