@@ -985,6 +985,13 @@ def create_new_course_in_store(store, user, org, number, run, fields):
     fields.update({
         'language': getattr(settings, 'DEFAULT_COURSE_LANGUAGE', 'en'),
         'cert_html_view_enabled': True,
+        # OST2: default new courses to private / invite-only / not in catalog, and
+        # set sensible content defaults, so instructors don't have to set these by hand.
+        'course_visibility': "private",
+        'catalog_visibility': "none",
+        'invitation_only': True,
+        'showanswer': "attempted",
+        'video_speed_optimizations': False,
     })
 
     with modulestore().default_store(store):
