@@ -17,7 +17,8 @@
             }
 
             _.bindAll(this, 'onReady', 'onPlay', 'onPause', 'onComplete', 'onEnded', 'onSeek',
-                'onSpeedChange', 'onAutoAdvanceChange', 'onShowLanguageMenu', 'onHideLanguageMenu',
+                'onSpeedChange', 'onAutoAdvanceChange', 'onQualityChange', 'onQualityRequested',
+                'onShowLanguageMenu', 'onHideLanguageMenu',
                 'onSkip', 'onShowTranscript', 'onHideTranscript', 'onShowCaptions', 'onHideCaptions',
                 'destroy');
 
@@ -48,6 +49,8 @@
                     skip: this.onSkip,
                     speedchange: this.onSpeedChange,
                     autoadvancechange: this.onAutoAdvanceChange,
+                    qualitychange: this.onQualityChange,
+                    'qualitychange:requested': this.onQualityRequested,
                     'language_menu:show': this.onShowLanguageMenu,
                     'language_menu:hide': this.onHideLanguageMenu,
                     'transcript:show': this.onShowTranscript,
@@ -115,6 +118,28 @@
             onAutoAdvanceChange: function(event, enabled) {
                 this.log('auto_advance_change_video', {
                     enabled: enabled
+                });
+            },
+
+            onQualityChange: function(event, newQuality, oldQuality) {
+                // Fired when YouTube reports the quality it actually switched to
+                // (an honored user request, or an automatic adaptive-bitrate
+                // change). Mirrors speed_change_video.
+                this.log('edx.video.quality.changed', {
+                    current_time: this.getCurrentTime(),
+                    old_quality: oldQuality,
+                    new_quality: newQuality
+                });
+            },
+
+            onQualityRequested: function(event, requestedQuality) {
+                // Fired when the viewer explicitly picks a quality level. Logged
+                // separately from the "changed" event because modern YouTube may
+                // ignore setPlaybackQuality, in which case onPlaybackQualityChange
+                // never fires -- this still records what the viewer asked for.
+                this.log('edx.video.quality.requested', {
+                    current_time: this.getCurrentTime(),
+                    requested_quality: requestedQuality
                 });
             },
 

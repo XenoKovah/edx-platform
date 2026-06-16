@@ -83,6 +83,29 @@ import '../helper.js';
             });
         });
 
+        it('can emit "edx.video.quality.changed" event', function() {
+            state.el.trigger('qualitychange', ['hd720', 'large']);
+            expect(Logger.log).toHaveBeenCalledWith('edx.video.quality.changed', {
+                id: 'id',
+                code: this.code,
+                current_time: 10,
+                old_quality: 'large',
+                new_quality: 'hd720',
+                duration: this.duration
+            });
+        });
+
+        it('can emit "edx.video.quality.requested" event', function() {
+            state.el.trigger('qualitychange:requested', ['hd1080']);
+            expect(Logger.log).toHaveBeenCalledWith('edx.video.quality.requested', {
+                id: 'id',
+                code: this.code,
+                current_time: 10,
+                requested_quality: 'hd1080',
+                duration: this.duration
+            });
+        });
+
         it('can emit "seek_video" event', function() {
             state.el.trigger('seek', [1, 0, 'any']);
             expect(Logger.log).toHaveBeenCalledWith('seek_video', {

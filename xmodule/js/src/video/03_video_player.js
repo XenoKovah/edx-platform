@@ -198,7 +198,7 @@
                 } else {
                     youTubeId = state.youtubeId();
 
-                    state.videoPlayer.player = new YT.Player(state.id, {
+                    state.videoPlayer.player = new YT.Player(state.id, _.extend(_youTubePlayerSize(state), {
                         playerVars: state.videoPlayer.playerVars,
                         videoId: youTubeId,
                         events: {
@@ -207,7 +207,7 @@
                             onPlaybackQualityChange: state.videoPlayer.onPlaybackQualityChange,
                             onError: state.videoPlayer.onError
                         }
-                    });
+                    }));
 
                     state.el.on('initialize', function() {
                         // eslint-disable-next-line no-shadow, no-multi-assign
@@ -278,6 +278,27 @@
                 }
             }
 
+            // YouTube selects the initial streaming quality partly from the
+            // player's pixel size when the iframe is created. The IFrame API's
+            // default size (~640px wide) biases YouTube toward a low starting
+            // resolution, which is the main cause of videos starting blurry and
+            // only ramping up to a legible quality several seconds in. Sizing the
+            // player to its rendered container width (kept 16:9) *before* the
+            // YT.Player is constructed nudges YouTube to start at a higher
+            // quality. Because this matches the size the player is displayed at,
+            // the later Resizer.align() introduces no visible resize.
+            function _youTubePlayerSize(state) {
+                var width = Math.round(state.el.width());
+
+                if (!width || width < 320) {
+                    // Element not laid out yet (or unexpectedly tiny); let the
+                    // YouTube IFrame API fall back to its own default dimensions.
+                    return {};
+                }
+
+                return {width: width, height: Math.round(width * 9 / 16)};
+            }
+
             function _resize(state, videoWidth, videoHeight) {
                 state.resizer = new Resizer({
                     element: state.videoEl,
@@ -321,7 +342,7 @@
                 delete state.videoPlayer.playerVars.html5;
 
                 // Request for the creation of a new Flash player
-                state.videoPlayer.player = new YT.Player(state.id, {
+                state.videoPlayer.player = new YT.Player(state.id, _.extend(_youTubePlayerSize(state), {
                     playerVars: state.videoPlayer.playerVars,
                     videoId: state.youtubeId(),
                     events: {
@@ -330,7 +351,7 @@
                         onPlaybackQualityChange: state.videoPlayer.onPlaybackQualityChange,
                         onError: state.videoPlayer.onError
                     }
-                });
+                }));
 
                 _updateVcrAndRegion(state, true);
                 state.el.trigger('caption:fetch');
@@ -556,12 +577,19 @@
             }
 
             function onPlaybackQualityChange() {
-                var quality;
+                // YouTube reports the quality it actually switched to (which may
+                // differ from any level we requested, since setPlaybackQuality is
+                // best-effort/deprecated). Track the previous level and forward
+                // both so the quality control can sync its UI to reality and the
+                // events plugin can log the change. (Historically `arguments` --
+                // the raw YT event object -- was forwarded; nothing consumed it.)
+                var quality = this.videoPlayer.player.getPlaybackQuality(),
+                    oldQuality = this.videoPlayer.currentQuality;
 
-                quality = this.videoPlayer.player.getPlaybackQuality();
+                this.videoPlayer.currentQuality = quality;
 
                 this.trigger('videoQualityControl.onQualityChange', quality);
-                this.el.trigger('qualitychange', arguments);
+                this.el.trigger('qualitychange', [quality, oldQuality]);
             }
 
             function onReady() {
