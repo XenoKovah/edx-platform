@@ -501,7 +501,6 @@
 }
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .speed-option,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .quality-option,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .control-lang {
     text-align: left;
     display: block;
@@ -520,8 +519,6 @@
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .speed-option:hover,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .speed-option:focus,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .quality-option:hover,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .quality-option:focus,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .control-lang:hover,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li .control-lang:focus {
     background-color: #4f595d;
@@ -529,7 +526,6 @@
 }
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li.is-active .speed-option,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li.is-active .quality-option,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .menu-container .menu li.is-active .control-lang {
     border-left: calc(var(--baseline, 20px) / 10) solid #90d7f9;
     font-weight: var(--font-bold, 700);
@@ -541,7 +537,6 @@
 }
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .speeds,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .quality,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .lang,
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .grouped-controls {
     display: inline-block;
@@ -655,15 +650,8 @@
 }
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .quality-control.is-hidden,
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .quality.menu-container.is-hidden,
 .xmodule_display.xmodule_VideoBlock .video.closed .video-wrapper .video-controls .secondary-controls .quality-control.subtitles {
     display: none !important;
-}
-
-.xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .quality .quality-button .value {
-    padding-left: calc((var(--baseline, 20px) / 4));
-    color: #e7ecee;
-    font-weight: bold;
 }
 
 .xmodule_display.xmodule_VideoBlock .video .video-wrapper .video-controls .secondary-controls .toggle-transcript.is-active {
