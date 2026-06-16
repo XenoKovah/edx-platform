@@ -256,7 +256,7 @@ class Model:
         request_data = {
             "comment_id": self.attributes["id"],
             "body": request_params.get("body"),
-            "course_id": request_params.get("course_id"),
+            "course_id": request_params.get("course_id") or course_id,
             "user_id": request_params.get("user_id"),
             "anonymous": request_params.get("anonymous"),
             "anonymous_to_peers": request_params.get("anonymous_to_peers"),
@@ -265,7 +265,6 @@ class Model:
             "editing_user_id": request_params.get("editing_user_id"),
             "edit_reason_code": request_params.get("edit_reason_code"),
             "endorsement_user_id": request_params.get("endorsement_user_id"),
-            "course_key": course_id
         }
         request_data = {k: v for k, v in request_data.items() if v is not None}
         response = forum_api.update_comment(**request_data)
@@ -276,7 +275,7 @@ class Model:
             "thread_id": self.attributes["id"],
             "title": request_params.get("title"),
             "body": request_params.get("body"),
-            "course_id": request_params.get("course_id"),
+            "course_id": request_params.get("course_id") or course_id,
             "anonymous": request_params.get("anonymous"),
             "anonymous_to_peers": request_params.get("anonymous_to_peers"),
             "closed": request_params.get("closed"),
@@ -289,7 +288,6 @@ class Model:
             "close_reason_code": request_params.get("close_reason_code"),
             "closing_user_id": request_params.get("closing_user_id"),
             "endorsed": request_params.get("endorsed"),
-            "course_key": course_id
         }
         request_data = {k: v for k, v in request_data.items() if v is not None}
         response = forum_api.update_thread(**request_data)
