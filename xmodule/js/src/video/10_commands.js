@@ -3,7 +3,12 @@
 
     define('video/10_commands.js', [], function() {
         var VideoCommands, Command, playCommand, pauseCommand, togglePlaybackCommand,
-            toggleMuteCommand, toggleFullScreenCommand, setSpeedCommand, skipCommand;
+            toggleMuteCommand, toggleFullScreenCommand, setSpeedCommand, skipCommand,
+            seekForwardCommand, seekBackwardCommand, skipSeek,
+            // Number of seconds the left/right arrow keys jump. Both the YouTube
+            // and HTML5 players accept an arbitrary seek target, so this is purely
+            // a UX choice; kept in sync with the progress slider's arrow-key step.
+            SKIP_SECONDS = 5;
         /**
      * Video commands module.
      * @exports video/10_commands.js
@@ -54,7 +59,7 @@
                     commandsList = [
                         playCommand, pauseCommand, togglePlaybackCommand,
                         toggleMuteCommand, toggleFullScreenCommand, setSpeedCommand,
-                        skipCommand
+                        skipCommand, seekForwardCommand, seekBackwardCommand
                     ];
 
                 _.each(commandsList, function(command) {
@@ -104,6 +109,48 @@
             } else {
                 state.videoBumper.skip();
             }
+        });
+
+        // Jump the playhead by `delta` seconds (negative to rewind), clamped to
+        // the bounds of the video. Used by the left/right arrow-key commands.
+        skipSeek = function(state, delta) {
+            var videoPlayer = state.videoPlayer,
+                duration, oldTime, newTime;
+
+            // The player may not be constructed yet (e.g. an arrow key pressed
+            // before the video metadata has loaded). Bail out quietly.
+            if (!videoPlayer || !videoPlayer.player) {
+                return;
+            }
+
+            duration = videoPlayer.duration();
+            oldTime = videoPlayer.currentTime;
+            if (!_.isFinite(oldTime)) {
+                oldTime = 0;
+            }
+            newTime = Math.max(0, Math.min(oldTime + delta, duration));
+
+            // Already at the start/end -- nothing to seek to.
+            if (newTime === oldTime) {
+                return;
+            }
+
+            // Mirror VideoPlayer.onSeek(): cancel any pending jump back to the
+            // configured start time, perform the seek, and emit the analytics
+            // `seek` event. We intentionally call seekTo() directly rather than
+            // the debounced onSlideSeek(), so that holding an arrow key
+            // accumulates correctly (seekTo() updates currentTime synchronously).
+            videoPlayer.goToStartTime = false;
+            videoPlayer.seekTo(newTime);
+            state.el.trigger('seek', [newTime, oldTime, 'onSkipSeek']);
+        };
+
+        seekForwardCommand = new Command('seekForward', function(state) {
+            skipSeek(state, SKIP_SECONDS);
+        });
+
+        seekBackwardCommand = new Command('seekBackward', function(state) {
+            skipSeek(state, -SKIP_SECONDS);
         });
 
         return VideoCommands;

@@ -35,6 +35,7 @@
                     show: show,
                     showControls: showControls,
                     focusFirst: focusFirst,
+                    keyDownHandler: keyDownHandler,
                     updateVcrVidTime: updateVcrVidTime
                 };
 
@@ -50,6 +51,7 @@
                 });
 
                 this.el.off('controls:show');
+                this.el.off('keydown', this.videoControl.keyDownHandler);
                 if (this.controlHideTimeout) {
                     clearTimeout(this.controlHideTimeout);
                 }
@@ -87,6 +89,12 @@
                 if (state.config.focusFirstControl) {
                     state.el.on('initialize', state.videoControl.focusFirst);
                 }
+
+                // Seek with the left/right arrow keys whenever focus is anywhere
+                // inside the video component (e.g. on a control button), not just
+                // on the thin progress-slider handle.
+                state.el.on('keydown', state.videoControl.keyDownHandler);
+
                 state.el.on('destroy', state.videoControl.destroy);
             }
 
@@ -163,6 +171,45 @@
                 }
                 currentTime = startTime ? params.time - startTime : params.time;
                 this.videoControl.vidTimeEl.text(Time.format(currentTime) + ' / ' + Time.format(endTime));
+            }
+
+            // Seek backward/forward with the left/right arrow keys. Bound on the
+            // whole video element so it works while focus is on any control, not
+            // only the progress-slider handle (which jQuery UI already steps by
+            // the same amount on its own). 'this' is the video state object.
+            function keyDownHandler(event) {
+                var LEFT_ARROW = 37,
+                    RIGHT_ARROW = 39,
+                    keyCode = event.keyCode,
+                    $target;
+
+                if (keyCode !== LEFT_ARROW && keyCode !== RIGHT_ARROW) {
+                    return;
+                }
+
+                // Leave OS/browser combinations alone (e.g. Alt+Left = history back).
+                if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+                    return;
+                }
+
+                $target = $(event.target);
+
+                // jQuery UI sliders (the progress bar and the vertical volume
+                // slider) already move their value on arrow keys and let the
+                // event bubble; skip them here so a focused slider handle does
+                // not both adjust and seek. Also never hijack arrow keys while
+                // the user is typing in a field.
+                if ($target.closest('.ui-slider').length
+                        || $target.is('input, textarea, select, [contenteditable="true"]')) {
+                    return;
+                }
+
+                if (!this.videoCommands) {
+                    return;
+                }
+
+                event.preventDefault();
+                this.videoCommands.execute(keyCode === LEFT_ARROW ? 'seekBackward' : 'seekForward');
             }
         }
     );
