@@ -46,6 +46,7 @@ from lms.djangoapps.bulk_email.models_api import is_bulk_email_feature_enabled
 from lms.djangoapps.commerce.utils import EcommerceService
 from lms.djangoapps.courseware.access import administrative_accesses_to_course_for_user
 from lms.djangoapps.courseware.access_utils import check_course_open_for_learner
+from lms.djangoapps.grades.api import CourseGradeFactory
 from lms.djangoapps.learner_home.serializers import (
     LearnerDashboardSerializer,
 )
@@ -433,6 +434,45 @@ def get_user_grade_passing_statuses(course_enrollments):
     }
 
 
+def get_current_grade_percent_in_course(enrollment):
+    """
+    Read the learner's current (persisted) grade percent for an enrollment.
+
+    Returns a float in [0.0, 1.0], or None if no grade has been computed yet (or
+    the enrollment's course is unavailable). Mirrors the defensive style of
+    user_has_passing_grade_in_course (read the persisted grade only, never trigger
+    a recompute), and additionally tolerates an enrollment whose course overview
+    is missing -- e.g. a since-deleted course, where course_overview is None and
+    read() raises ValueError -- so a single bad enrollment can't 500 the whole
+    dashboard.
+    """
+    try:
+        user = enrollment.user
+        course = enrollment.course_overview
+        if course is None:
+            return None
+        course_grade = CourseGradeFactory().read(user, course, create_if_needed=False)
+        if course_grade:
+            return course_grade.percent
+    except (AttributeError, ValueError):
+        pass
+    return None
+
+
+@function_trace("get_user_grade_percents")
+def get_user_grade_percents(course_enrollments):
+    """
+    Get current grade percent for user in each course.
+
+    Returns:
+    - Dict {course_id: <float in [0.0, 1.0], or None if no grade yet>}
+    """
+    return {
+        course_enrollment.course_id: get_current_grade_percent_in_course(course_enrollment)
+        for course_enrollment in course_enrollments
+    }
+
+
 @function_trace("get_credit_statuses")
 def get_credit_statuses(user, course_enrollments):
     """
@@ -516,6 +556,9 @@ class InitializeView(APIView):  # pylint: disable=unused-argument
         # Get grade passing status by course
         grade_statuses = get_user_grade_passing_statuses(course_enrollments)
 
+        # Get current grade percent by course
+        grade_percents = get_user_grade_percents(course_enrollments)
+
         # Get cert status by course
         cert_statuses = get_cert_statuses(user, course_enrollments)
 
@@ -561,6 +604,7 @@ class InitializeView(APIView):  # pylint: disable=unused-argument
             "course_access_checks": course_access_checks,
             "credit_statuses": user_credit_statuses,
             "grade_statuses": grade_statuses,
+            "grade_percents": grade_percents,
             "resume_course_urls": resume_button_urls,
             "course_share_urls": course_share_urls,
             "show_email_settings_for": show_email_settings_for,

@@ -276,9 +276,14 @@ class GradeDataSerializer(serializers.Serializer):
     requires_context = True
 
     isPassing = serializers.SerializerMethodField()
+    percentGraded = serializers.SerializerMethodField()
 
     def get_isPassing(self, enrollment):
         return self.context.get("grade_statuses", {}).get(enrollment.course_id, False)
+
+    def get_percentGraded(self, enrollment):
+        """Current grade as a float in [0.0, 1.0], or None if no grade yet."""
+        return self.context.get("grade_percents", {}).get(enrollment.course_id, None)
 
 
 class CertificateSerializer(serializers.Serializer):
