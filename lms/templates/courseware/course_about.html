@@ -18,6 +18,12 @@ from openedx.core.lib.courses import course_image_url
   ## (https://developers.facebook.com/docs/opengraph/howtos/maximizing-distribution-media-content#tags)
   <meta property="og:title" content="${course.display_name_with_default}" />
   <meta property="og:description" content="${get_course_about_section(request, course, 'short_description')}" />
+  ## og:image + Twitter Card so shared About-page links render the course card image
+  <meta property="og:image" content="${request.build_absolute_uri(course_image_url(course))}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${course.display_name_with_default}" />
+  <meta name="twitter:description" content="${get_course_about_section(request, course, 'short_description')}" />
+  <meta name="twitter:image" content="${request.build_absolute_uri(course_image_url(course))}" />
 </%block>
 
 <%block name="js_extra">
