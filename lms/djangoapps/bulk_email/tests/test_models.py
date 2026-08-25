@@ -18,7 +18,9 @@ from common.djangoapps.course_modes.models import CourseMode
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory, StaffFactory
 from lms.djangoapps.bulk_email.api import is_bulk_email_feature_enabled
 from lms.djangoapps.bulk_email.models import (
+    EXCLUDE_COMPLETED,
     SEND_TO_COHORT,
+    SEND_TO_LEARNERS,
     SEND_TO_STAFF,
     SEND_TO_TRACK,
     BulkEmailFlag,
@@ -31,6 +33,8 @@ from lms.djangoapps.bulk_email.models import (
     Target,
 )
 from lms.djangoapps.bulk_email.models_api import is_bulk_email_disabled_for_course
+from lms.djangoapps.certificates.data import CertificateStatuses
+from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from lms.djangoapps.bulk_email.tests.factories import TargetFactory
 from openedx.core.djangoapps.course_groups.models import CourseCohort
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
@@ -431,3 +435,97 @@ class TargetFilterTest(ModuleStoreTestCase):
 
         assert result.count() == 1
         assert result.filter(id=self.staff_user.id).exists()
+
+
+class ExclusionTargetTest(ModuleStoreTestCase):
+    """
+    Tests for the `exclude_completed` "don't send to" target.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.course = CourseFactory()
+        self.passed = UserFactory()
+        self.granted = UserFactory()
+        self.not_passing = UserFactory()
+        self.no_certificate = UserFactory()
+        for user in (self.passed, self.granted, self.not_passing, self.no_certificate):
+            CourseEnrollmentFactory(is_active=True, mode='audit', course_id=self.course.id, user=user)
+
+        # A learner who earned a certificate by passing the course.
+        GeneratedCertificateFactory(
+            user=self.passed,
+            course_id=self.course.id,
+            status=CertificateStatuses.downloadable,
+        )
+        # A learner who was granted a certificate manually via the certificate allowlist. Allowlisted learners get
+        # an ordinary `downloadable` certificate once it is generated, so this looks the same as the case above --
+        # which is exactly why matching on the certificate rather than on the grade catches both.
+        GeneratedCertificateFactory(
+            user=self.granted,
+            course_id=self.course.id,
+            status=CertificateStatuses.downloadable,
+        )
+        # A learner who was evaluated and did not pass. A certificate row exists, but they did not receive one.
+        GeneratedCertificateFactory(
+            user=self.not_passing,
+            course_id=self.course.id,
+            status=CertificateStatuses.notpassing,
+        )
+
+        self.target = Target.objects.create(target_type=EXCLUDE_COMPLETED)
+
+    def test_is_exclusion(self):
+        """
+        Verifies that only the `exclude_completed` target is flagged as an exclusion.
+        """
+        assert self.target.is_exclusion
+        assert not Target.objects.create(target_type=SEND_TO_LEARNERS).is_exclusion
+
+    def test_display_names(self):
+        """
+        Verifies the display names used by the scheduled email API and the email content history.
+        """
+        assert self.target.short_display() == EXCLUDE_COMPLETED
+        assert self.target.long_display() == 'Excluding students who completed the course'
+
+    def test_get_users_returns_certificate_holders(self):
+        """
+        Verifies `get_users` returns everyone who has received a certificate for the course, whether they earned it
+        with a passing grade or were granted one manually, and nobody else.
+        """
+        result = self.target.get_users(self.course.id)
+
+        assert result.count() == 2
+        assert result.filter(id=self.passed.id).exists()
+        assert result.filter(id=self.granted.id).exists()
+        assert not result.filter(id=self.not_passing.id).exists()
+        assert not result.filter(id=self.no_certificate.id).exists()
+
+    def test_get_users_ignores_other_courses(self):
+        """
+        Verifies a certificate earned in a different course-run does not suppress a learner here.
+        """
+        other_course = CourseFactory()
+        GeneratedCertificateFactory(
+            user=self.no_certificate,
+            course_id=other_course.id,
+            status=CertificateStatuses.downloadable,
+        )
+
+        result = self.target.get_users(self.course.id)
+
+        assert not result.filter(id=self.no_certificate.id).exists()
+
+    def test_get_users_ignores_invalidated_certificates(self):
+        """
+        Verifies a learner whose certificate was invalidated is no longer suppressed.
+        """
+        certificate = self.passed.generatedcertificate_set.get(course_id=self.course.id)
+        certificate.status = CertificateStatuses.unavailable
+        certificate.save()
+
+        result = self.target.get_users(self.course.id)
+
+        assert result.count() == 1
+        assert not result.filter(id=self.passed.id).exists()

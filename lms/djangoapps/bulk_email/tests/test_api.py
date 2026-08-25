@@ -243,6 +243,43 @@ class BulkEmailApiTests(ModuleStoreTestCase):
         for target in returned_targets:
             assert target.short_display() in expected_targets
 
+    def test_determine_targets_for_course_email_with_exclusion(self):
+        """
+        A test to verify that an exclusion ("don't send to") target is accepted alongside regular targets.
+        """
+        targets = [
+            BulkEmailTargetChoices.SEND_TO_LEARNERS,
+            BulkEmailTargetChoices.EXCLUDE_COMPLETED,
+        ]
+        returned_targets = determine_targets_for_course_email(
+            self.course.id,
+            self.subject,
+            targets
+        )
+
+        assert sorted(target.short_display() for target in returned_targets) == sorted(targets)
+        assert [target.is_exclusion for target in returned_targets if target.short_display() == targets[1]] == [True]
+
+    def test_determine_targets_for_course_email_exclusion_only_expect_error(self):
+        """
+        A test to verify an expected error is thrown when a message specifies exclusions but no recipient groups.
+        An exclusion describes who *not* to email, so on its own it describes an email with no recipients at all.
+        """
+        targets = [BulkEmailTargetChoices.EXCLUDE_COMPLETED]
+        expected_error_msg = (
+            f"Course email for '{self.course.id}', subject '{self.subject}' specifies only exclusions and no "
+            "recipient groups"
+        )
+
+        with self.assertRaises(ValueError) as value_err:
+            determine_targets_for_course_email(
+                self.course.id,
+                self.subject,
+                targets
+            )
+
+        assert str(value_err.exception) == expected_error_msg
+
     def test_determine_targets_for_course_email_invalid_target_expect_error(self):
         """
         A test to verify an expected error is thrown when invalid target data is sent to the

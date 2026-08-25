@@ -55,11 +55,27 @@ SEND_TO_STAFF = 'staff'
 SEND_TO_LEARNERS = 'learners'
 SEND_TO_COHORT = 'cohort'
 SEND_TO_TRACK = 'track'
+# Bulk email exclusion targets - the "don't send to" options. These subtract recipients from a message instead of
+# adding them, but are stored on the CourseEmail alongside the "send to" targets so that they survive scheduling
+# and editing without needing a second M2M relationship.
+EXCLUDE_COMPLETED = 'exclude_completed'
 EMAIL_TARGET_CHOICES = list(zip(
-    [SEND_TO_MYSELF, SEND_TO_STAFF, SEND_TO_LEARNERS, SEND_TO_COHORT, SEND_TO_TRACK],
-    ['Myself', 'Staff and instructors', 'All students', 'Specific cohort', 'Specific course mode']
+    [SEND_TO_MYSELF, SEND_TO_STAFF, SEND_TO_LEARNERS, SEND_TO_COHORT, SEND_TO_TRACK, EXCLUDE_COMPLETED],
+    [
+        'Myself',
+        'Staff and instructors',
+        'All students',
+        'Specific cohort',
+        'Specific course mode',
+        'Excluding students who completed the course',
+    ]
 ))
 EMAIL_TARGETS = {target[0] for target in EMAIL_TARGET_CHOICES}
+# The subset of the above that removes recipients rather than adding them.
+EMAIL_EXCLUSION_TARGETS = {EXCLUDE_COMPLETED}
+# The "send to" targets that an exclusion is applied to. An exclusion only ever suppresses students, so the
+# author's own copy (SEND_TO_MYSELF) and the course team (SEND_TO_STAFF) always go out regardless.
+EMAIL_TARGETS_SUBJECT_TO_EXCLUSION = {SEND_TO_LEARNERS, SEND_TO_COHORT, SEND_TO_TRACK}
 
 
 class Target(models.Model):
@@ -83,6 +99,13 @@ class Target(models.Model):
 
     def __str__(self):
         return f"CourseEmail Target: {self.short_display()}"
+
+    @property
+    def is_exclusion(self):
+        """
+        Returns True if this target removes recipients from a message rather than adding them.
+        """
+        return self.target_type in EMAIL_EXCLUSION_TARGETS
 
     def short_display(self):
         """
@@ -148,6 +171,25 @@ class Target(models.Model):
                     & enrollment_query
                 ).exclude(id__in=staff_instructor_qset)
             )
+        elif self.target_type == EXCLUDE_COMPLETED:
+            # Deferred import, matching the pattern already used by CourseEmail.create(). Importing another app's
+            # models module at the top of this one runs it while the app registry is still being populated.
+            from lms.djangoapps.certificates.data import CertificateStatuses
+            from lms.djangoapps.certificates.models import GeneratedCertificate
+
+            # A certificate row exists for everyone who has been *evaluated* for the course, so the status is what
+            # distinguishes "completed the course" from "did not pass": PASSED_STATUSES is the platform's own
+            # definition of a learner who passed (see CertificateStatuses.is_passing_status), and its `downloadable`
+            # member is what CertificateStatuses.readable_statuses calls "already received". Matching on the
+            # certificate rather than on the grade is what makes this catch both learners who earned it with a
+            # passing grade and learners who were granted one manually via the certificate allowlist -- an
+            # allowlisted learner ends up with an ordinary `downloadable` certificate once it is generated.
+            # An invalidated certificate drops to `unavailable`, which is correctly not suppressed.
+            certificate_holders = GeneratedCertificate.objects.filter(
+                course_id=course_id,
+                status__in=CertificateStatuses.PASSED_STATUSES,
+            ).values_list('user_id', flat=True)
+            return use_read_replica_if_available(User.objects.filter(id__in=certificate_holders))
         else:
             raise ValueError(f"Unrecognized target type {self.target_type}")
 

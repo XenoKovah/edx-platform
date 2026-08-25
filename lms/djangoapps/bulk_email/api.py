@@ -153,6 +153,16 @@ def determine_targets_for_course_email(course_id, subject, targets):
     Historically, this used to be a piece of logic in the CourseEmail model's `create` function but has been extracted
     here so it can be used by a REST API of the `instructor_task` app.
     """
+    # An exclusion describes who *not* to email, so a message made up of nothing but exclusions has no recipients
+    # at all. Check for that up front, before any Target rows are created, so the author gets an error on submit
+    # rather than a failed task later.
+    if targets and all(
+        BulkEmailTargetChoices.is_exclusion_target(target.split(':', 1)[0]) for target in targets
+    ):
+        raise ValueError(
+            f"Course email for '{course_id}', subject '{subject}' specifies only exclusions and no recipient groups"
+        )
+
     new_targets = []
     for target in targets:
         # split target, to handle cohort:cohort_name and track:mode_slug

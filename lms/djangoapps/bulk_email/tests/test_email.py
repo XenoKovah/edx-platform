@@ -26,6 +26,8 @@ from common.djangoapps.student.tests.factories import InstructorFactory
 from common.djangoapps.student.tests.factories import StaffFactory
 from lms.djangoapps.bulk_email.messages import ACEEmail
 from lms.djangoapps.bulk_email.tasks import _get_course_email_context, _get_source_address
+from lms.djangoapps.certificates.data import CertificateStatuses
+from lms.djangoapps.certificates.tests.factories import GeneratedCertificateFactory
 from lms.djangoapps.instructor_task.subtasks import update_subtask_status
 from openedx.core.djangoapps.course_groups.cohorts import add_user_to_cohort
 from openedx.core.djangoapps.course_groups.models import CourseCohort
@@ -478,6 +480,102 @@ class TestEmailSendFromDashboardMockedHtmlToText(EmailSendFromDashboardTestCase)
         assert len(mail.outbox) == ((1 + len(self.staff)) + len(self.students))
         assert len([e.to[0] for e in mail.outbox]) == \
                len([self.instructor.email] + [s.email for s in self.staff] + [s.email for s in self.students])
+
+    def _award_certificate(self, user, status=CertificateStatuses.downloadable):
+        """
+        Give `user` a certificate for the test course-run.
+        """
+        return GeneratedCertificateFactory(user=user, course_id=self.course.id, status=status)
+
+    def test_send_to_all_excluding_completed(self):
+        """
+        Make sure learners who have received a course certificate are left out when the exclusion is selected.
+        """
+        completed_students = self.students[:3]
+        for student in completed_students:
+            self._award_certificate(student)
+        # A learner who was evaluated but did not pass has a certificate record without having received one, and
+        # should still get the email.
+        self._award_certificate(self.students[3], status=CertificateStatuses.notpassing)
+
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["myself", "staff", "learners", "exclude_completed"]',
+            'subject': 'test subject for all but completers',
+            'message': 'test message for all but completers'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+
+        recipients = [e.to[0] for e in mail.outbox]
+        # the 1 is for the instructor
+        assert len(recipients) == ((1 + len(self.staff)) + len(self.students)) - len(completed_students)
+        for student in completed_students:
+            assert student.email not in recipients
+        for student in self.students[3:]:
+            assert student.email in recipients
+
+    def test_send_to_all_excluding_completed_still_sends_to_self_and_staff(self):
+        """
+        The exclusion suppresses students, so a member of the course team who happens to hold a certificate for the
+        course still receives their copy.
+        """
+        self._award_certificate(self.instructor)
+        self._award_certificate(self.staff[0])
+        for student in self.students:
+            self._award_certificate(student)
+
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["myself", "staff", "exclude_completed"]',
+            'subject': 'test subject for staff only',
+            'message': 'test message for staff only'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+
+        recipients = [e.to[0] for e in mail.outbox]
+        assert len(recipients) == 1 + len(self.staff)
+        assert self.instructor.email in recipients
+        assert self.staff[0].email in recipients
+
+    def test_send_to_cohort_excluding_completed(self):
+        """
+        Make sure the exclusion also applies to a cohort target, not just "All Learners".
+        """
+        cohort = CourseCohort.create(cohort_name='test cohort', course_id=self.course.id)
+        for student in self.students:
+            add_user_to_cohort(cohort.course_user_group, student.username)
+        completed_student = self.students[0]
+        self._award_certificate(completed_student)
+
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["cohort:test cohort", "exclude_completed"]',
+            'subject': 'test subject for cohort',
+            'message': 'test message for cohort'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+
+        recipients = [e.to[0] for e in mail.outbox]
+        assert len(recipients) == len(self.students) - 1
+        assert completed_student.email not in recipients
+
+    def test_send_to_exclusion_only_is_rejected(self):
+        """
+        An exclusion on its own describes an email with no recipients, so it is rejected before a task is queued.
+        """
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["exclude_completed"]',
+            'subject': 'test subject for nobody',
+            'message': 'test message for nobody'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+
+        assert response.status_code == 400
+        assert len(mail.outbox) == 0
 
     @override_settings(BULK_EMAIL_JOB_SIZE_THRESHOLD=1)
     def test_send_to_all_high_queue(self):

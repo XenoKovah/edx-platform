@@ -34,7 +34,7 @@ from common.djangoapps.util.string_utils import _has_non_ascii_characters
 from lms.djangoapps.branding.api import get_logo_url_for_email
 from lms.djangoapps.bulk_email.api import get_unsubscribed_link
 from lms.djangoapps.bulk_email.messages import ACEEmail, DjangoEmail
-from lms.djangoapps.bulk_email.models import CourseEmail, Optout
+from lms.djangoapps.bulk_email.models import EMAIL_TARGETS_SUBJECT_TO_EXCLUSION, CourseEmail, Optout
 from lms.djangoapps.bulk_email.toggles import (
     is_bulk_email_edx_ace_enabled,
     is_email_use_course_id_from_for_bulk_enabled
@@ -214,10 +214,34 @@ def perform_delegate_email_batches(entry_id, course_id, task_input, action_name)
     targets = email_obj.targets.all()
     global_email_context = _get_course_email_context(course)
 
-    recipient_qsets = [
-        target.get_users(course_id, user_id)
-        for target in targets
-    ]
+    # "Don't send to" targets subtract recipients rather than adding them, so separate them out before the
+    # "send to" targets are resolved and unioned together.
+    send_to_targets = [target for target in targets if not target.is_exclusion]
+    exclusion_targets = [target for target in targets if target.is_exclusion]
+    if not send_to_targets:
+        msg = f"Bulk Email Task: email {email_id} has exclusions but no recipient groups"
+        log.warning(msg)
+        raise ValueError(msg)
+
+    # Resolve the exclusions to a concrete set of user ids up front. They have to be applied to each "send to"
+    # queryset individually, *before* the union below, because Django cannot filter the result of .union().
+    excluded_user_ids = set()
+    for target in exclusion_targets:
+        excluded_user_ids.update(target.get_users(course_id, user_id).values_list('id', flat=True))
+    if excluded_user_ids:
+        log.info(
+            "Task %s: suppressing %s recipient(s) of email %s in course %s via exclusion target(s) %s",
+            task_id, len(excluded_user_ids), email_id, course_id,
+            [target.short_display() for target in exclusion_targets],
+        )
+
+    recipient_qsets = []
+    for target in send_to_targets:
+        recipient_qset = target.get_users(course_id, user_id)
+        if excluded_user_ids and target.target_type in EMAIL_TARGETS_SUBJECT_TO_EXCLUSION:
+            recipient_qset = recipient_qset.exclude(id__in=excluded_user_ids)
+        recipient_qsets.append(recipient_qset)
+
     # Use union here to combine the qsets instead of the | operator.  This avoids generating an
     # inefficient OUTER JOIN query that would read the whole user table.
     combined_set = recipient_qsets[0].union(*recipient_qsets[1:]) if len(recipient_qsets) > 1 \
