@@ -5,11 +5,13 @@ Tests pre-approving course creators by email address.
 
 from unittest import mock
 
+from django.contrib import admin as django_admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import TestCase
 from django.test.client import RequestFactory
+from django.urls import reverse
 
 from cms.djangoapps.course_creators.admin import CourseCreatorAllowlistAdmin
 from cms.djangoapps.course_creators.models import CourseCreator, CourseCreatorAllowlist
@@ -189,3 +191,55 @@ class CourseCreatorAllowlistTest(TestCase):
 
         User.objects.filter(pk=user.pk).delete()
         self.assertFalse(CourseCreator.objects.filter(user_id=user.pk).exists())
+
+    def test_admin_views_render(self):
+        """
+        The Studio admin views for the allowlist must actually render: a broken
+        list_display callable, filter or fieldset only shows up at render time.
+
+        The views are driven directly rather than over the test client, because
+        edx-platform's SafeSessionMiddleware rejects the session cookie that
+        Client.force_login() writes, failing the request before it ever reaches
+        the admin.
+        """
+        entry = self._pre_approve('instructor@example.com')
+        superuser = UserFactory.create(
+            username='root', email='root@edx.org', password='foo', is_staff=True, is_superuser=True,
+        )
+        # The registered instance, so this also asserts the model reached the admin.
+        model_admin = django_admin.site._registry[CourseCreatorAllowlist]  # pylint: disable=protected-access
+
+        def _request(path):
+            request = RequestFactory().get(path)
+            request.user = superuser
+            request.session = {}
+            request._messages = FallbackStorage(request)  # pylint: disable=protected-access
+            return request
+
+        base = '/admin/course_creators/coursecreatorallowlist/'
+        changelist = model_admin.changelist_view(_request(base))
+        add = model_admin.add_view(_request(base + 'add/'))
+        change = model_admin.change_view(_request(f'{base}{entry.id}/change/'), str(entry.id))
+
+        for label, response in [('changelist', changelist), ('add', add), ('change', change)]:
+            self.assertEqual(200, response.status_code, label)
+
+        # The overview lists the entry, with the computed status column.
+        changelist_body = changelist.render().content.decode()
+        self.assertIn('instructor@example.com', changelist_body)
+        self.assertIn('awaiting registration', changelist_body)
+
+        # The add form is blank but must offer the editable fields.
+        add_body = add.render().content.decode()
+        self.assertIn('id_email', add_body)
+        self.assertIn('id_note', add_body)
+
+        # The change form shows the entry and its read-only redemption fields.
+        change_body = change.render().content.decode()
+        self.assertIn('instructor@example.com', change_body)
+        self.assertIn('Redeemed at', change_body)
+
+        # The columns are computed in Python, so check what they actually say.
+        self.assertEqual('awaiting registration', model_admin.status(entry))
+        self.assertEqual('Mark', model_admin.approved_by(entry))
+        self.assertEqual('', model_admin.account(entry))
