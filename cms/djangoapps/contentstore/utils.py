@@ -69,6 +69,7 @@ from common.djangoapps.student import auth
 from common.djangoapps.student.auth import STUDIO_EDIT_ROLES, has_studio_read_access, has_studio_write_access
 from common.djangoapps.student.models import CourseEnrollment
 from common.djangoapps.student.roles import (
+    CourseDataResearcherRole,
     CourseInstructorRole,
     CourseStaffRole,
     GlobalStaff,
@@ -92,7 +93,11 @@ from openedx.core.djangoapps.content_tagging.toggles import is_tagging_feature_d
 from openedx.core.djangoapps.credit.api import get_credit_requirements, is_credit_course
 from openedx.core.djangoapps.discussions.config.waffle import ENABLE_PAGES_AND_RESOURCES_MICROFRONTEND
 from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration
-from openedx.core.djangoapps.django_comment_common.models import assign_default_role
+from openedx.core.djangoapps.django_comment_common.models import (
+    FORUM_ROLE_ADMINISTRATOR,
+    assign_default_role,
+    assign_role,
+)
 from openedx.core.djangoapps.django_comment_common.utils import seed_permissions_roles
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
@@ -135,6 +140,10 @@ def initialize_permissions(course_key, user_who_created_course):
     """
     Initializes a new course by enrolling the course creator as a student,
     and initializing Forum by seeding its permissions and assigning default roles.
+
+    The creator is also given the Discussion Admin and Course Data Researcher
+    roles, matching what an LMS Staff grant confers.  Both stay independently
+    revocable from the instructor dashboard afterwards.
     """
     # seed the forums
     seed_permissions_roles(course_key)
@@ -144,6 +153,12 @@ def initialize_permissions(course_key, user_who_created_course):
 
     # set default forum roles (assign 'Student' role)
     assign_default_role(course_key, user_who_created_course)
+
+    # the creator runs the discussions for the course they just made
+    assign_role(course_key, user_who_created_course, FORUM_ROLE_ADMINISTRATOR)
+
+    # ...and can pull its data down from the instructor dashboard
+    CourseDataResearcherRole(course_key).add_users(user_who_created_course)
 
 
 def remove_all_instructors(course_key):

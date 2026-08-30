@@ -26,8 +26,14 @@ from cms.djangoapps.course_creators.admin import CourseCreatorAdmin
 from cms.djangoapps.course_creators.models import CourseCreator
 from cms.djangoapps.contentstore.views.course import get_allowed_organizations, user_can_create_organizations
 from common.djangoapps.student.auth import update_org_role
-from common.djangoapps.student.roles import CourseInstructorRole, CourseStaffRole, OrgContentCreatorRole
+from common.djangoapps.student.roles import (
+    CourseDataResearcherRole,
+    CourseInstructorRole,
+    CourseStaffRole,
+    OrgContentCreatorRole,
+)
 from common.djangoapps.student.tests.factories import AdminFactory, UserFactory
+from openedx.core.djangoapps.django_comment_common.models import FORUM_ROLE_ADMINISTRATOR, Role
 
 
 def mock_render_to_string(template_name, context):
@@ -128,6 +134,72 @@ class TestCourseListing(ModuleStoreTestCase):
         new_course_key = CourseKey.from_string(data['course_key'])
         course = self.store.get_course(new_course_key)
         self.assertTrue(course.cert_html_view_enabled)
+
+    def assert_creator_roles(self, course_key, user):
+        """ The creator of `course_key` holds every role course creation should confer. """
+        assert CourseInstructorRole(course_key).has_user(user)
+        assert CourseStaffRole(course_key).has_user(user)
+        assert CourseDataResearcherRole(course_key).has_user(user)
+        assert Role.objects.filter(
+            course_id=course_key, name=FORUM_ROLE_ADMINISTRATOR, users=user
+        ).exists()
+
+    def test_newly_created_course_gives_creator_discussion_admin_and_data_researcher(self):
+        """
+        Creating a course makes its creator a Discussion Admin and Course Data Researcher.
+        """
+        response = self.client.ajax_post(self.course_create_rerun_url, {
+            'org': 'orgX',
+            'number': 'CS103',
+            'display_name': 'Course whose creator runs its discussions',
+            'run': '2015_T2'
+        })
+        self.assertEqual(response.status_code, 200)
+        new_course_key = CourseKey.from_string(parse_json(response)['course_key'])
+        self.assert_creator_roles(new_course_key, self.user)
+
+    def test_rerun_gives_creator_discussion_admin_and_data_researcher(self):
+        """
+        A rerun is a new class, so whoever kicks it off gets the same roles on the copy.
+        """
+        add_organization({
+            'name': 'Test Organization',
+            'short_name': self.source_course_key.org,
+            'description': 'Testing Organization Description',
+        })
+        response = self.client.ajax_post(self.course_create_rerun_url, {
+            'source_course_key': str(self.source_course_key),
+            'org': self.source_course_key.org,
+            'course': self.source_course_key.course,
+            'run': 'rolescopy',
+            'display_name': 'rerun with roles',
+        })
+        self.assertEqual(response.status_code, 200)
+        dest_course_key = CourseKey.from_string(parse_json(response)['destination_course_key'])
+        self.assert_creator_roles(dest_course_key, self.user)
+
+    def test_creator_roles_are_independently_revocable(self):
+        """
+        The two extra roles are ordinary memberships -- dropping them leaves the rest alone.
+        """
+        response = self.client.ajax_post(self.course_create_rerun_url, {
+            'org': 'orgX',
+            'number': 'CS104',
+            'display_name': 'Course whose creator sheds the extra roles',
+            'run': '2015_T2'
+        })
+        self.assertEqual(response.status_code, 200)
+        new_course_key = CourseKey.from_string(parse_json(response)['course_key'])
+
+        CourseDataResearcherRole(new_course_key).remove_users(self.user)
+        Role.objects.get(course_id=new_course_key, name=FORUM_ROLE_ADMINISTRATOR).users.remove(self.user)
+
+        assert not CourseDataResearcherRole(new_course_key).has_user(self.user)
+        assert not Role.objects.filter(
+            course_id=new_course_key, name=FORUM_ROLE_ADMINISTRATOR, users=self.user
+        ).exists()
+        assert CourseInstructorRole(new_course_key).has_user(self.user)
+        assert CourseStaffRole(new_course_key).has_user(self.user)
 
     def test_course_creation_for_unknown_organization_relaxed(self):
         """
