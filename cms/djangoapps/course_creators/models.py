@@ -67,6 +67,14 @@ def post_init_callback(sender, **kwargs):  # lint-amnesty, pylint: disable=unuse
     Extend to store previous state.
     """
     instance = kwargs['instance']
+    # Only read fields that are actually loaded. Reading a deferred field here
+    # calls refresh_from_db(), which builds another instance deferring a
+    # *different* set of fields and fires post_init again, ping-ponging between
+    # state and all_organizations until the stack is exhausted. Django defers
+    # fields on the querysets it uses to cascade deletes, so this is reachable
+    # just by deleting a user who is in the course creator table.
+    if instance.get_deferred_fields():
+        return
     instance.orig_state = instance.state
     instance.orig_all_organizations = instance.all_organizations
 
@@ -77,6 +85,10 @@ def post_save_callback(sender, **kwargs):
     Extend to update state_changed time and fire event to update course creator group, if appropriate.
     """
     instance = kwargs['instance']
+    if not hasattr(instance, 'orig_state'):
+        # Partially loaded instance (see post_init_callback): there is no baseline
+        # to compare against, so there is no state transition to react to.
+        return
     # We only wish to modify the state_changed time if the state has been modified. We don't wish to
     # modify it for changes to the notes field.
     # We need to keep track of all_organization switch. If this switch is changed we are going to remove the

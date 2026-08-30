@@ -6,6 +6,7 @@ Tests pre-approving course creators by email address.
 from unittest import mock
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import TestCase
 from django.test.client import RequestFactory
@@ -174,3 +175,17 @@ class CourseCreatorAllowlistTest(TestCase):
         self.assertEqual(self.admin, entry.created_by)
         self.assertEqual(user, entry.redeemed_user)
         self.assertEqual('granted', get_course_creator_status(user))
+
+    def test_deleting_a_course_creator_user_does_not_recurse(self):
+        """
+        Django defers fields on the querysets it uses to cascade deletes, so the
+        CourseCreator post_init receiver must not dereference them. This feature
+        makes that path common, because pre-approved users get a CourseCreator row
+        whether or not they ever open Studio.
+        """
+        self._pre_approve('instructor@example.com')
+        user = self._register('instructor@example.com')
+        self.assertEqual('granted', get_course_creator_status(user))
+
+        User.objects.filter(pk=user.pk).delete()
+        self.assertFalse(CourseCreator.objects.filter(user_id=user.pk).exists())
