@@ -24,7 +24,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods
 from edx_django_utils.monitoring import function_trace
 from opaque_keys import InvalidKeyError
-from opaque_keys.edx.keys import CourseKey
+from opaque_keys.edx.keys import AssetKey, CourseKey
 from opaque_keys.edx.locator import BlockUsageLocator
 from organizations.api import add_organization_course, ensure_organization
 from organizations.exceptions import InvalidOrganizationException
@@ -57,6 +57,7 @@ from common.djangoapps.student.roles import (
 from common.djangoapps.util.json_request import JsonResponse, JsonResponseBadRequest, expect_json
 from common.djangoapps.util.string_utils import _has_non_ascii_characters
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
+from openedx.core.djangoapps.contentserver.caching import del_cached_content
 from openedx.core.djangoapps.credit.tasks import update_credit_course_requirements
 from openedx.core.djangoapps.models.course_details import CourseDetails
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
@@ -64,8 +65,10 @@ from openedx.core.djangolib.js_utils import dump_js_escaped_json
 from openedx.core.lib.course_tabs import CourseTabPluginManager
 from organizations.models import Organization
 from xmodule.contentstore.content import StaticContent  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.contentstore.django import contentstore  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.course_block import CourseBlock, CourseFields  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.error_block import ErrorBlock  # lint-amnesty, pylint: disable=wrong-import-order
+from xmodule.exceptions import NotFoundError  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore import EdxJSONEncoder  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.exceptions import DuplicateCourseError  # lint-amnesty, pylint: disable=wrong-import-order
@@ -975,6 +978,76 @@ def create_new_course(user, org, number, run, fields):
     return new_course
 
 
+# OST2: the course card image a newly created course starts out with, named as an
+# asset in an existing course -- the InstructorHowTo class holds the house image.
+# Override in settings to point somewhere else, or set to None to leave new
+# courses on the platform default.
+DEFAULT_COURSE_IMAGE_SOURCE_ASSET = (
+    'asset-v1:OpenSecurityTraining+InstructorHowTo+V1+type@asset+block@course_image.png'
+)
+
+
+def _default_course_image():
+    """
+    The asset holding the house course card image, or None if there isn't one.
+
+    Best effort by design: an unset setting, a malformed key, or a source course
+    that has since been deleted all leave new courses on the platform default.
+    Creating a course must never fail over its decoration.
+    """
+    source_asset = getattr(settings, 'DEFAULT_COURSE_IMAGE_SOURCE_ASSET', DEFAULT_COURSE_IMAGE_SOURCE_ASSET)
+    if not source_asset:
+        return None
+
+    try:
+        return contentstore().find(AssetKey.from_string(source_asset))
+    except NotFoundError:
+        # The ordinary "this deployment has no house image" case -- also every
+        # test that creates a course -- so say it plainly rather than as an
+        # error with a traceback.
+        log.info(
+            "No default course card image at %s; new courses keep the platform default",
+            source_asset,
+        )
+        return None
+    except Exception:  # pylint: disable=broad-except
+        log.exception(
+            "Default course card image %s could not be read; new courses keep the platform default",
+            source_asset,
+        )
+        return None
+
+
+def _copy_course_image(course_key, source_content):
+    """
+    Copy the house course card image into a course's own asset store.
+
+    ``course_image`` is a bare filename that Studio and the LMS resolve against
+    the course's OWN assets, so the image cannot just be linked -- the bytes are
+    copied in under the source asset's filename, leaving the new course holding
+    an ordinary upload that the author can swap out from Studio's "Course Card
+    Image" picker like any other.
+    """
+    filename = source_content.location.block_id
+    content = StaticContent(
+        StaticContent.compute_location(course_key, filename),
+        filename,
+        source_content.content_type,
+        source_content.data,
+        length=source_content.length,
+    )
+
+    # The save path a Studio upload takes, so the copy carries the thumbnail that
+    # the Files page and the card image picker expect to find alongside it.
+    thumbnail_content, thumbnail_location = contentstore().generate_thumbnail(content)
+    del_cached_content(thumbnail_location)
+    if thumbnail_content is not None:
+        content.thumbnail_location = thumbnail_location
+
+    contentstore().save(content)
+    del_cached_content(content.location)
+
+
 def create_new_course_in_store(store, user, org, number, run, fields):
     """
     Create course in store w/ handling instructor enrollment, permissions, and defaulting the wiki slug.
@@ -992,7 +1065,18 @@ def create_new_course_in_store(store, user, org, number, run, fields):
         'invitation_only': True,
         'showanswer': "attempted",
         'video_speed_optimizations': False,
+        # OST2 classes are worked through on the learner's own schedule, so
+        # self-paced is the house default and instructor-paced the exception.
+        'self_paced': True,
     })
+
+    # OST2: resolve the house course card image up front so the course block is
+    # created already pointing at it, and copy the bytes in only once the course
+    # exists -- copying first would overwrite the image of whatever course already
+    # holds this key on the DuplicateCourseError path below.
+    course_image = _default_course_image()
+    if course_image is not None:
+        fields['course_image'] = course_image.location.block_id
 
     with modulestore().default_store(store):
         # Creating the course raises DuplicateCourseError if an existing course with this org/name is found
@@ -1003,6 +1087,12 @@ def create_new_course_in_store(store, user, org, number, run, fields):
             user.id,
             fields=fields,
         )
+
+    if course_image is not None:
+        try:
+            _copy_course_image(new_course.id, course_image)
+        except Exception:  # pylint: disable=broad-except
+            log.exception("Could not copy the default course card image into %s", new_course.id)
 
     # Make sure user has instructor and staff access to the new course
     add_instructor(new_course.id, user, user)
