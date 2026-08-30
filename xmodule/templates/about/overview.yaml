@@ -5,49 +5,52 @@ metadata:
 data: |
     <section class="about">
       <h2>About This Course</h2>
-      <p>Include your long course description here. The long course description should contain 150-400 words.</p>
+      <p>First paragraph about your course here</p>
 
-      <p>This is paragraph 2 of the long course description. Add more paragraphs as needed. Make sure to enclose them in paragraph tags.</p>
+      <p>Second paragraph about your course here</p>
+
+      <p>Perhaps put a list of what you'll cover in the class, such as:</p>
+
+      <ul>
+        <li>Awesome thing</li>
+        <li>Cool thing</li>
+        <li>AMAZING CONCLUSION THING!!!</li>
+      </ul>
+
     </section>
 
     <section class="prerequisites">
       <h2>Requirements</h2>
-      <p>Add information about the skills and knowledge students need to take this course.</p>
-    </section>
-
-    <section class="course-staff">
-      <h2>Course Staff</h2>
-      <article class="teacher">
-        <div class="teacher-image">
-          <img src="/static/images/placeholder-faculty.png" align="left" alt="Course Staff Image #1" />
-        </div>
-
-        <h3>Staff Member #1</h3>
-        <p>Biography of instructor/staff member #1</p>
-      </article>
-
-      <article class="teacher">
-        <div class="teacher-image">
-          <img src="/static/images/placeholder-faculty.png" align="left" alt="Course Staff Image #2" />
-        </div>
-
-        <h3>Staff Member #2</h3>
-        <p>Biography of instructor/staff member #2</p>
-      </article>
+      <p>List your prerequisites here. If referencing an existing OST2 class as a prereq, use the short form URL which will always point at the latest class, like <a href="https://ost2.fyi/Arch1001">Arch1001</a>. </p>
     </section>
 
     <section class="faq">
       <section class="responses">
         <h2>Frequently Asked Questions</h2>
         <article class="response">
-          <h3>What web browser should I use?</h3>
-          <p>The Open edX platform works best with current versions of Chrome, Edge, Firefox, or Safari.</p>
-          <p>See our <a href="https://docs.openedx.org/en/latest/developers/references/developer_guide/testing/browsers.html">list of supported browsers</a> for the most up-to-date information.</p>
+          <h3>What learning paths is this class used in?</h3>
+          <p>List the learning paths, if applicable</p>
+        </article>
+        <article class="response">
+          <h3>Does this instructor teach the class in person?</h3>
+          <p>Answer here, or just delete the question if the answer is no.</p>
+        </article>
+        <article class="response">
+          <h3>Is there another question people might ask?</h3>
+          <p>If so here's the answer.</p>
         </article>
 
-        <article class="response">
-          <h3>Question #2</h3>
-          <p>Your answer would be displayed here.</p>
-        </article>
       </section>
+    </section>
+
+    <section class="course-staff">
+      <h2>Course Staff</h2>
+      <article class="teacher">
+        <div class="teacher-image">
+          <img src="FIXME: IMAGE URL HERE!" align="left" style="margin:0 20px 0" alt="Bio Pic!">
+        </div>
+
+        <h3>Instructor Name</h3>
+        <p>Write as much or as little about yourself as you want.</p>
+      </article>
     </section>
