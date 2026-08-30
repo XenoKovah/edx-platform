@@ -9,6 +9,7 @@ from eventtracking import tracker
 from . import models, settings, utils
 from forum import api as forum_api
 from openedx.core.djangoapps.discussions.config.waffle import is_forum_v2_enabled, is_forum_v2_disabled_globally
+from openedx.core.djangoapps.django_comment_common import shadow_mute
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +103,10 @@ class Thread(models.Model):
                 metric_action='thread.search',
                 paged_results=True
             )
+
+        # OST2: drop threads by shadow-muted authors before anything
+        # downstream counts or renders them.
+        response = shadow_mute.filter_content_collection(response, query_params['course_id'])
 
         if query_params.get('text'):
             search_query = query_params['text']
@@ -206,6 +211,11 @@ class Thread(models.Model):
                 metric_action='model.retrieve',
                 metric_tags=self._metric_tags
             )
+        # OST2: hide shadow-muted responses, and make a shadow-muted
+        # thread itself look missing so a direct link 404s for peers.
+        response = shadow_mute.filter_thread(response, course_id)
+        if response is None:
+            raise utils.CommentClientRequestError('Thread not found.')
         self._update_from_response(response)
 
     def flagAbuse(self, user, voteable, course_id=None):

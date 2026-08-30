@@ -12,10 +12,12 @@ from django.shortcuts import get_object_or_404
 from drf_yasg import openapi
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
+from django.http import Http404
+from opaque_keys import InvalidKeyError
 from opaque_keys.edx.keys import CourseKey
 from rest_framework import permissions, status
 from rest_framework.authentication import SessionAuthentication
-from rest_framework.exceptions import ParseError, UnsupportedMediaType
+from rest_framework.exceptions import ParseError, PermissionDenied, UnsupportedMediaType
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -33,6 +35,7 @@ from openedx.core.djangoapps.discussions.models import DiscussionsConfiguration,
 from openedx.core.djangoapps.discussions.serializers import DiscussionSettingsSerializer
 from openedx.core.djangoapps.django_comment_common import comment_client
 from openedx.core.djangoapps.django_comment_common.models import CourseDiscussionSettings, Role
+from openedx.core.djangoapps.django_comment_common.shadow_mute import can_moderate_shadow_muted, set_shadow_mute
 from openedx.core.djangoapps.user_api.accounts.permissions import CanReplaceUsername, CanRetireUser
 from openedx.core.djangoapps.user_api.models import UserRetirementStatus
 from openedx.core.lib.api.authentication import BearerAuthentication, BearerAuthenticationAllowInactiveUser
@@ -1492,3 +1495,103 @@ class CourseDiscussionRolesAPIView(DeveloperErrorViewMixin, APIView):
         context = {'course_discussion_settings': CourseDiscussionSettings.get(course_id)}
         serializer = DiscussionRolesListSerializer(data, context=context)
         return Response(serializer.data)
+
+
+class CourseDiscussionShadowMuteAPIView(DeveloperErrorViewMixin, APIView):
+    """
+    **Use Cases**
+
+    OST2: shadow-mute, or un-mute, one learner's forum contributions in one
+    course. A shadow-muted learner keeps seeing their own posts exactly as they
+    did before; their peers see nothing of theirs anywhere in the forum.
+    Moderators keep seeing the content, marked as muted, so it stays reviewable
+    and deletable, and the moderator notification emails are unaffected.
+
+    Normally driven by the "Shadow-mute author" item in a post's actions menu in
+    the Discussions MFE; the mutes are also visible and editable in Django admin
+    under Django_comment_common > Forum shadow mutes.
+
+    **Example Request**
+
+        POST /api/discussion/v1/courses/{course_id}/shadow_mute/
+        {"username": "<username>", "muted": true, "reason": "<optional note>"}
+
+    **POST Parameters**
+
+        * username (required): the learner to mute or un-mute.
+
+        * muted (required): true to apply the mute, false to lift it.
+
+        * reason (optional): a note to other moderators about why.
+
+    **Response Values**
+
+        A HTTP 400 Bad Request is returned when username or muted is missing or
+        malformed.
+
+        A HTTP 403 Forbidden is returned when the requester does not moderate
+        the course, or when the target is themselves a moderator or a member of
+        the course team.
+
+        A HTTP 404 Not Found is returned for an unknown course or username.
+
+        A HTTP 200 OK carries the resulting state:
+
+        * username: the affected learner.
+
+        * course_id: the course the mute applies to.
+
+        * muted: whether the learner is now shadow-muted.
+    """
+    authentication_classes = (
+        JwtAuthentication,
+        BearerAuthenticationAllowInactiveUser,
+        SessionAuthenticationAllowInactiveUser,
+    )
+    permission_classes = (permissions.IsAuthenticated,)
+
+    def post(self, request, course_id):
+        """
+        Apply or lift a shadow mute for one learner in one course.
+        """
+        try:
+            course_key = CourseKey.from_string(course_id)
+        except InvalidKeyError as err:
+            raise Http404 from err
+
+        if not can_moderate_shadow_muted(request.user, course_key):
+            raise PermissionDenied("Only course moderators can shadow-mute a learner.")
+
+        username = request.data.get("username")
+        muted = request.data.get("muted")
+        if not username:
+            raise self.api_error(status.HTTP_400_BAD_REQUEST, "'username' is required.", "missing_username")
+        if not isinstance(muted, bool):
+            raise self.api_error(status.HTTP_400_BAD_REQUEST, "'muted' is required and must be a boolean.", "invalid_muted")
+
+        try:
+            target = get_user_model().objects.get(username=username)
+        except get_user_model().DoesNotExist as err:
+            raise Http404 from err
+
+        if target.id == request.user.id:
+            raise PermissionDenied("You cannot shadow-mute yourself.")
+
+        # Muting a moderator would be a no-op anyway (moderators always see
+        # each other's posts), so refuse rather than record a mute that does
+        # nothing.
+        if can_moderate_shadow_muted(target, course_key):
+            raise PermissionDenied("Moderators and course team members cannot be shadow-muted.")
+
+        set_shadow_mute(
+            target,
+            course_key,
+            muted,
+            actor=request.user,
+            reason=request.data.get("reason", "") or "",
+        )
+        return Response({
+            "username": target.username,
+            "course_id": str(course_key),
+            "muted": muted,
+        })

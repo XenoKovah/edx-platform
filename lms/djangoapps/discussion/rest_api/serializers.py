@@ -41,6 +41,7 @@ from openedx.core.djangoapps.django_comment_common.comment_client.thread import 
 from openedx.core.djangoapps.django_comment_common.comment_client.user import User as CommentClientUser
 from openedx.core.djangoapps.django_comment_common.comment_client.utils import CommentClientRequestError
 from openedx.core.djangoapps.django_comment_common.models import CourseDiscussionSettings
+from openedx.core.djangoapps.django_comment_common.shadow_mute import is_shadow_muted
 from openedx.core.djangoapps.user_api.accounts.api import get_profile_images
 from openedx.core.lib.api.serializers import CourseKeyField
 
@@ -154,6 +155,8 @@ class _ContentSerializer(serializers.Serializer):
     vote_count = serializers.SerializerMethodField()
     editable_fields = serializers.SerializerMethodField()
     can_delete = serializers.SerializerMethodField()
+    author_shadow_muted = serializers.SerializerMethodField()
+    can_shadow_mute = serializers.SerializerMethodField()
     anonymous = serializers.BooleanField(default=False)
     anonymous_to_peers = serializers.BooleanField(default=False)
     last_edit = serializers.SerializerMethodField(required=False)
@@ -237,6 +240,41 @@ class _ContentSerializer(serializers.Serializer):
         else:
             user_id = int(obj["user_id"])
             return self._get_user_label(user_id)
+
+    def get_author_shadow_muted(self, obj):
+        """
+        OST2: whether this content's author is shadow-muted in this course.
+
+        Peers never receive content by a muted author at all, so this is only
+        ever True for a moderator. It drives the marker on the post and the
+        mute-vs-unmute choice in the actions menu.
+        """
+        if not self.context.get("has_moderation_privilege"):
+            return False
+        user_id = obj.get("user_id")
+        if user_id is None:
+            return False
+        return is_shadow_muted(user_id, self.context["course"].id)
+
+    def get_can_shadow_mute(self, obj):
+        """
+        OST2: whether the requester may shadow-mute this content's author.
+
+        Moderators only, and never against yourself, another moderator, or the
+        course team. Anonymous posts are excluded: muting from one would act on
+        an author the moderator cannot see, which is too easy to do by mistake.
+        """
+        if not self.context.get("has_moderation_privilege"):
+            return False
+        user_id = obj.get("user_id")
+        if user_id is None or self._is_anonymous(obj):
+            return False
+        user_id = int(user_id)
+        if user_id == self.context["request"].user.id:
+            return False
+        if self._is_user_privileged(user_id) or user_id in self.context["course_staff_user_ids"]:
+            return False
+        return True
 
     def get_rendered_body(self, obj):
         """

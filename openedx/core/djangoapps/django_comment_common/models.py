@@ -336,3 +336,56 @@ class DiscussionsIdMapping(models.Model):
         if not created:
             mapping_entry.mapping = discussions_id_map
             mapping_entry.save()
+
+
+class ForumShadowMute(models.Model):
+    """
+    OST2: a per-course "shadow mute" on one learner's forum contributions.
+
+    While an active row exists, everything the muted user has posted in
+    ``course_id`` -- threads, responses and comments, past and future -- is
+    hidden from their peers on every forum read path. The author still sees
+    their own posts exactly as before, and so do users with forum moderation
+    privilege, so a moderator can still review and delete the content.
+
+    This is deliberately a read-path filter and not a posting block: the write
+    path is untouched, so the muted user still posts "successfully" and the
+    existing instructor notification emails still fire.
+
+    .. no_pii:
+    """
+    user = models.ForeignKey(
+        User,
+        related_name='forum_shadow_mutes',
+        on_delete=models.CASCADE,
+        help_text="The learner whose forum posts are hidden from their peers.",
+    )
+    course_id = CourseKeyField(max_length=255, db_index=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Uncheck to lift the mute while keeping the record of it.",
+    )
+    reason = models.TextField(
+        blank=True,
+        default='',
+        help_text="Optional note to other moderators about why this mute was applied.",
+    )
+    created = models.DateTimeField(auto_now_add=True, db_index=True)
+    modified = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        related_name='forum_shadow_mutes_applied',
+        on_delete=models.SET_NULL,
+        help_text="The moderator who applied the mute.",
+    )
+
+    class Meta:
+        unique_together = (('user', 'course_id'),)
+        verbose_name = 'forum shadow mute'
+        verbose_name_plural = 'forum shadow mutes'
+
+    def __str__(self):
+        state = 'active' if self.is_active else 'inactive'
+        return f'ForumShadowMute({self.user.username}, {self.course_id}, {state})'

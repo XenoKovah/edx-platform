@@ -11,6 +11,7 @@ from forum import api as forum_api
 from openedx.core.djangoapps.django_comment_common.comment_client import settings
 from openedx.core.djangoapps.django_comment_common.comment_client.utils import perform_request
 from openedx.core.djangoapps.discussions.config.waffle import is_forum_v2_enabled
+from openedx.core.djangoapps.django_comment_common import shadow_mute
 
 
 def get_course_commentable_counts(course_key: CourseKey) -> Dict[str, Dict[str, int]]:
@@ -95,6 +96,8 @@ def get_course_user_stats(course_key: CourseKey, params: Optional[Dict] = None) 
                 "function:get_course_user_stats",
             ],
         )
+    # OST2: shadow-muted learners drop out of the activity leaderboard.
+    course_stats = shadow_mute.filter_user_stats(course_stats, course_key)
     return course_stats
 
 

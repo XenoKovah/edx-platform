@@ -19,6 +19,7 @@ from lms.djangoapps.discussion.rest_api.tasks import (
 )
 from lms.djangoapps.discussion.toggles import ENABLE_NEW_THREAD_MODERATOR_NOTIFICATIONS
 from openedx.core.djangoapps.django_comment_common import signals
+from openedx.core.djangoapps.django_comment_common.shadow_mute import is_shadow_muted
 from openedx.core.djangoapps.site_configuration.models import SiteConfiguration
 from openedx.core.djangoapps.theming.helpers import get_current_site
 from xmodule.modulestore.django import SignalHandler, modulestore
@@ -26,6 +27,19 @@ from xmodule.modulestore.django import SignalHandler, modulestore
 log = logging.getLogger(__name__)
 
 ENABLE_FORUM_NOTIFICATIONS_FOR_SITE_KEY = 'enable_forum_notifications'
+
+
+def _author_is_shadow_muted(user, post):
+    """
+    OST2: whether this post's author is shadow-muted in its course.
+
+    Guards the *learner-facing* notifications only, so that a post nobody
+    else can see cannot announce itself to the peers it is hidden from. The
+    moderator-facing handlers below deliberately do NOT consult this: the
+    point of a shadow mute is that the instructor keeps being told about the
+    posts their learners have stopped being bothered by.
+    """
+    return is_shadow_muted(user, getattr(post, 'course_id', None))
 
 
 @receiver(SignalHandler.course_published)
@@ -50,6 +64,10 @@ def update_discussions_on_course_publish(sender, course_key, **kwargs):  # pylin
 @receiver(signals.comment_created)
 def send_discussion_email_notification(sender, user, post,
                                        **kwargs):  # lint-amnesty, pylint: disable=missing-function-docstring, unused-argument
+    if _author_is_shadow_muted(user, post):
+        log.info('Discussion: author shadow-muted, not emailing about post: %s.', post.id)
+        return
+
     current_site = get_current_site()
     if current_site is None:
         log.info('Discussion: No current site, not sending notification about post: %s.', post.id)
@@ -185,6 +203,9 @@ def create_thread_created_notification(*args, **kwargs):
     """
     user = kwargs['user']
     post = kwargs['post']
+    if _author_is_shadow_muted(user, post):
+        log.info('Discussion: author shadow-muted, no thread notification for: %s.', post.id)
+        return
     send_thread_created_notification.apply_async(args=[post.id, post.attributes['course_id'], user.id])
 
 
@@ -195,6 +216,9 @@ def create_comment_created_notification(*args, **kwargs):
     """
     user = kwargs['user']
     comment = kwargs['post']
+    if _author_is_shadow_muted(user, comment):
+        log.info('Discussion: author shadow-muted, no response notification for: %s.', comment.id)
+        return
     thread_id = comment.attributes['thread_id']
     parent_id = comment.attributes['parent_id']
     comment_id = comment.attributes['id']

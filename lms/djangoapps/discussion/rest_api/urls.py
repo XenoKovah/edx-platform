@@ -12,6 +12,7 @@ from lms.djangoapps.discussion.rest_api.views import (
     CourseActivityStatsView,
     CourseDiscussionRolesAPIView,
     CourseDiscussionSettingsAPIView,
+    CourseDiscussionShadowMuteAPIView,
     CourseTopicsView,
     CourseTopicsViewV2,
     CourseTopicsViewV3,
@@ -59,6 +60,11 @@ urlpatterns = [
         ),
         CourseDiscussionRolesAPIView.as_view(),
         name="discussion_course_roles",
+    ),
+    re_path(
+        fr"^v1/courses/{settings.COURSE_ID_PATTERN}/shadow_mute/?$",
+        CourseDiscussionShadowMuteAPIView.as_view(),
+        name="discussion_course_shadow_mute",
     ),
     re_path(
         fr"^v1/courses/{settings.COURSE_ID_PATTERN}",

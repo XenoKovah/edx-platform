@@ -5,6 +5,7 @@ from . import models, settings, utils
 from forum import api as forum_api
 from forum.utils import ForumV2RequestError, str_to_bool
 from openedx.core.djangoapps.discussions.config.waffle import is_forum_v2_enabled
+from openedx.core.djangoapps.django_comment_common import shadow_mute
 
 
 class User(models.Model):
@@ -182,6 +183,8 @@ class User(models.Model):
                 metric_tags=self._metric_tags,
                 paged_results=True,
             )
+        # OST2: a shadow-muted learner's post list is empty to their peers.
+        response = shadow_mute.filter_content_collection(response, params.get('course_id'))
         return response.get('collection', []), response.get('page', 1), response.get('num_pages', 1)
 
     def subscribed_threads(self, query_params=None):
@@ -216,6 +219,8 @@ class User(models.Model):
                 metric_tags=self._metric_tags,
                 paged_results=True
             )
+        # OST2: keep shadow-muted threads out of the Following list.
+        response = shadow_mute.filter_content_collection(response, params.get('course_id'))
         return utils.CommentClientPaginatedResult(
             collection=response.get('collection', []),
             page=response.get('page', 1),

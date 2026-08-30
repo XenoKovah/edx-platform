@@ -7,6 +7,7 @@ import typing as t
 from .utils import CommentClientRequestError, extract, perform_request, get_course_key
 from forum import api as forum_api
 from openedx.core.djangoapps.discussions.config.waffle import is_forum_v2_enabled, is_forum_v2_disabled_globally
+from openedx.core.djangoapps.django_comment_common import shadow_mute
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +94,11 @@ class Model:
                 metric_tags=self._metric_tags,
                 metric_action='model.retrieve'
             )
+        if self.type == 'comment':
+            # OST2: hide a shadow-muted comment and its shadow-muted replies.
+            response = shadow_mute.filter_comment(response, course_id)
+            if response is None:
+                raise CommentClientRequestError('Comment not found.')
         self._update_from_response(response)
 
     @property
@@ -127,13 +133,16 @@ class Model:
         Returns:
             The parsed JSON response from the backend.
         """
-        return perform_request(
+        response = perform_request(
             'get',
             cls.url(action='get_all'),
             params,
             metric_tags=[f'model_class:{cls.__name__}'],
             metric_action='model.retrieve_all',
         )
+        # OST2: a shadow-muted learner contributes nothing to their peers'
+        # view of any content listing.
+        return shadow_mute.filter_content_collection(response, (params or {}).get('course_id'))
 
     def _update_from_response(self, response_data):
         for k, v in response_data.items():
