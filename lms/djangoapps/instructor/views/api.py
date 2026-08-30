@@ -1003,6 +1003,35 @@ class BulkBetaModifyAccess(DeveloperErrorViewMixin, APIView):
         return JsonResponse(response_payload)
 
 
+# Roles that are granted alongside the Staff role when a user is added as Staff
+# from the instructor dashboard's Course Team Management panel.  These are
+# convenience grants only: each role remains an independent membership, so it
+# can be revoked on its own afterwards, and revoking Staff does not revoke them.
+STAFF_IMPLIED_COURSE_ROLES = ['data_researcher']
+STAFF_IMPLIED_FORUM_ROLES = [FORUM_ROLE_ADMINISTRATOR]
+
+
+def grant_roles_implied_by_staff(course, user):
+    """
+    Grant the course and forum roles that come along with the Staff role.
+
+    Adding a role a user already has is a no-op, so this is safe to re-run.
+    A course whose forum roles were never seeded is logged and skipped rather
+    than failing the Staff grant that triggered this.
+    """
+    for level in STAFF_IMPLIED_COURSE_ROLES:
+        allow_access(course, user, level, send_email=False)
+
+    for rolename in STAFF_IMPLIED_FORUM_ROLES:
+        try:
+            update_forum_role(course.id, user, rolename, 'allow')
+        except Role.DoesNotExist:
+            log.warning(
+                "Could not grant implied forum role '%s' to user %s in course %s: role does not exist.",
+                rolename, user.username, course.id,
+            )
+
+
 @method_decorator(cache_control(no_cache=True, no_store=True, must_revalidate=True), name='dispatch')
 class ModifyAccess(APIView):
     """
@@ -1010,6 +1039,10 @@ class ModifyAccess(APIView):
     Requires instructor access.
 
     NOTE: instructors cannot remove their own instructor access.
+
+    NOTE: granting 'staff' also grants the roles in STAFF_IMPLIED_COURSE_ROLES
+    and STAFF_IMPLIED_FORUM_ROLES.  Revoking 'staff' does not revoke them; they
+    are revoked individually, like any other role.
 
     Query parameters:
     unique_student_identifier is the target user's username or email
@@ -1071,6 +1104,8 @@ class ModifyAccess(APIView):
             allow_access(course, user, rolename)
             if not is_user_enrolled_in_course(user, course_id):
                 CourseEnrollment.enroll(user, course_id)
+            if rolename == 'staff':
+                grant_roles_implied_by_staff(course, user)
         elif action == 'revoke':
             revoke_access(course, user, rolename)
         else:

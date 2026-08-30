@@ -60,6 +60,7 @@ from common.djangoapps.student.roles import (
     CourseDataResearcherRole,
     CourseFinanceAdminRole,
     CourseInstructorRole,
+    CourseStaffRole,
 )
 from common.djangoapps.student.tests.factories import (
     BetaTesterFactory,
@@ -95,7 +96,11 @@ from lms.djangoapps.instructor_task.models import InstructorTask, InstructorTask
 from lms.djangoapps.program_enrollments.tests.factories import ProgramEnrollmentFactory
 from openedx.core.djangoapps.course_date_signals.handlers import extract_dates
 from openedx.core.djangoapps.course_groups.cohorts import set_course_cohorted
-from openedx.core.djangoapps.django_comment_common.models import FORUM_ROLE_COMMUNITY_TA
+from openedx.core.djangoapps.django_comment_common.models import (
+    FORUM_ROLE_ADMINISTRATOR,
+    FORUM_ROLE_COMMUNITY_TA,
+    Role,
+)
 from openedx.core.djangoapps.django_comment_common.utils import seed_permissions_roles
 from openedx.core.djangoapps.oauth_dispatch import jwt as jwt_api
 from openedx.core.djangoapps.oauth_dispatch.adapters import DOTAdapter
@@ -2306,6 +2311,100 @@ class TestInstructorAPILevelsAccess(SharedModuleStoreTestCase, LoginEnrollmentTe
             })
             assert response.status_code == 200
             CourseEnrollment.unenroll(self.other_user, self.course.id)
+
+    def _has_forum_role(self, user, rolename):
+        """ Whether `user` holds the `rolename` forum role in the test course. """
+        return Role.objects.filter(
+            course_id=self.course.id, name=rolename, users=user
+        ).exists()
+
+    def test_modify_access_staff_grants_implied_roles(self):
+        """ Adding a user as Staff also makes them a Discussion Admin and Course Data Researcher. """
+        seed_permissions_roles(self.course.id)
+        url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
+        response = self.client.post(url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'staff',
+            'action': 'allow',
+        })
+        assert response.status_code == 200
+        assert CourseStaffRole(self.course.id).has_user(self.other_user)
+        assert CourseDataResearcherRole(self.course.id).has_user(self.other_user)
+        assert self._has_forum_role(self.other_user, FORUM_ROLE_ADMINISTRATOR)
+
+    def test_modify_access_only_staff_grants_implied_roles(self):
+        """ Roles other than Staff do not drag the implied roles along with them. """
+        seed_permissions_roles(self.course.id)
+        url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
+        for rolename in ['limited_staff', 'instructor', 'beta']:
+            response = self.client.post(url, {
+                'unique_student_identifier': self.other_user.email,
+                'rolename': rolename,
+                'action': 'allow',
+            })
+            assert response.status_code == 200
+        assert not CourseDataResearcherRole(self.course.id).has_user(self.other_user)
+        assert not self._has_forum_role(self.other_user, FORUM_ROLE_ADMINISTRATOR)
+
+    def test_modify_access_implied_roles_are_revoked_independently(self):
+        """ The implied roles can each be revoked on their own, leaving Staff alone. """
+        seed_permissions_roles(self.course.id)
+        modify_url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
+        forum_url = reverse('update_forum_role_membership', kwargs={'course_id': str(self.course.id)})
+        self.client.post(modify_url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'staff',
+            'action': 'allow',
+        })
+
+        response = self.client.post(modify_url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'data_researcher',
+            'action': 'revoke',
+        })
+        assert response.status_code == 200
+        response = self.client.post(forum_url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': FORUM_ROLE_ADMINISTRATOR,
+            'action': 'revoke',
+        })
+        assert response.status_code == 200
+
+        assert not CourseDataResearcherRole(self.course.id).has_user(self.other_user)
+        assert not self._has_forum_role(self.other_user, FORUM_ROLE_ADMINISTRATOR)
+        assert CourseStaffRole(self.course.id).has_user(self.other_user)
+
+    def test_modify_access_revoke_staff_leaves_implied_roles(self):
+        """ Revoking Staff does not cascade: the implied roles are left in place. """
+        seed_permissions_roles(self.course.id)
+        url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
+        self.client.post(url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'staff',
+            'action': 'allow',
+        })
+        response = self.client.post(url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'staff',
+            'action': 'revoke',
+        })
+        assert response.status_code == 200
+        assert not CourseStaffRole(self.course.id).has_user(self.other_user)
+        assert CourseDataResearcherRole(self.course.id).has_user(self.other_user)
+        assert self._has_forum_role(self.other_user, FORUM_ROLE_ADMINISTRATOR)
+
+    def test_modify_access_staff_without_seeded_forum_roles(self):
+        """ A course with no seeded forum roles still gets a working Staff grant. """
+        assert not Role.objects.filter(course_id=self.course.id, name=FORUM_ROLE_ADMINISTRATOR).exists()
+        url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
+        response = self.client.post(url, {
+            'unique_student_identifier': self.other_user.email,
+            'rolename': 'staff',
+            'action': 'allow',
+        })
+        assert response.status_code == 200
+        assert CourseStaffRole(self.course.id).has_user(self.other_user)
+        assert CourseDataResearcherRole(self.course.id).has_user(self.other_user)
 
     def test_modify_access_allow_with_uname(self):
         url = reverse('modify_access', kwargs={'course_id': str(self.course.id)})
