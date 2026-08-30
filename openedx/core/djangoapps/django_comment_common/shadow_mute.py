@@ -27,6 +27,9 @@ notifications working.
 
 
 import logging
+import threading
+from collections import Counter
+from contextlib import contextmanager
 
 from crum import get_current_user
 from edx_django_utils.cache import RequestCache
@@ -47,6 +50,26 @@ MODERATION_ROLES = [
     'Group Moderator',
     'Community TA',
 ]
+
+
+_bypass = threading.local()
+
+
+@contextmanager
+def unfiltered():
+    """
+    Run a forum read with the shadow-mute filter switched off.
+
+    Needed by the counting helpers below: they ask the forum for exactly the
+    content that is being hidden, and the ordinary filter -- which resolves the
+    viewer from the request -- would strip it back out and report zero.
+    """
+    previous = getattr(_bypass, 'active', False)
+    _bypass.active = True
+    try:
+        yield
+    finally:
+        _bypass.active = previous
 
 
 def _coerce_course_key(course_id):
@@ -152,6 +175,9 @@ def get_hidden_author_ids(course_id, viewer=None):
     there is no request-bound viewer at all (Celery tasks, management commands,
     and the notification-email handlers, which must keep seeing everything).
     """
+    if getattr(_bypass, 'active', False):
+        return frozenset()
+
     muted_ids = get_shadow_muted_user_ids(course_id)
     if not muted_ids:
         return frozenset()
@@ -242,14 +268,29 @@ def filter_content_collection(response, course_id, viewer=None):
         return response
 
     collection = response.get('collection') or []
-    kept = [thread for thread in collection if _author_id(thread) not in hidden_ids]
+    kept = [item for item in collection if _author_id(item) not in hidden_ids]
     removed = len(collection) - len(kept)
-    if not removed:
-        return response
 
-    response['collection'] = kept
-    _decrement(response, 'thread_count', removed)
-    _decrement(response, 'comment_count', removed)
+    if removed:
+        response['collection'] = kept
+        _decrement(response, 'thread_count', removed)
+        _decrement(response, 'comment_count', removed)
+
+    # A hidden author's replies to *other* people's threads never appear in this
+    # collection, but they are still counted in each thread's reply total. Left
+    # alone, a post card advertises more responses than the reader can find
+    # inside it -- the same tell as an inflated topic count.
+    reply_counts = get_hidden_reply_counts(course_id, hidden_ids)
+    if reply_counts:
+        for thread in kept:
+            hidden_replies = reply_counts.get(str(thread.get('id')))
+            if hidden_replies and isinstance(thread.get('comments_count'), int):
+                _decrement(thread, 'comments_count', hidden_replies)
+                # Never leave "5 unread" on a thread that now shows 3 replies.
+                if isinstance(thread.get('unread_comments_count'), int):
+                    thread['unread_comments_count'] = min(
+                        thread['unread_comments_count'], thread['comments_count'],
+                    )
     return response
 
 
@@ -373,3 +414,112 @@ def set_shadow_mute(user, course_id, muted, actor=None, reason=''):
         getattr(actor, 'username', 'unknown'),
     )
     return muted
+
+
+def _breakdown_cache(course_key, hidden_ids, kind):
+    """Request-cache key for a per-course, per-hidden-set tally."""
+    return f'{kind}:{course_key}:{",".join(sorted(hidden_ids))}'
+
+
+def get_hidden_topic_counts(course_id, hidden_ids):
+    """
+    Count the hidden threads per (topic, thread type).
+
+    Read through comment_client so it works on either forum backend. Hidden
+    authors are rare and have few threads, so this is a small number of calls,
+    cached for the rest of the request.
+    """
+    course_key = _coerce_course_key(course_id)
+    if course_key is None or not hidden_ids:
+        return Counter()
+
+    cache = RequestCache(REQUEST_CACHE_NAMESPACE)
+    cache_key = _breakdown_cache(course_key, hidden_ids, 'topiccounts')
+    cached = cache.get_cached_response(cache_key)
+    if cached.is_found:
+        return cached.value
+
+    from openedx.core.djangoapps.django_comment_common.comment_client.thread import Thread
+
+    counts = Counter()
+    for author_id in sorted(hidden_ids):
+        page = 1
+        while True:
+            with unfiltered():
+                result = Thread.search({
+                    'course_id': str(course_key),
+                    'author_id': author_id,
+                    'user_id': author_id,
+                    'page': page,
+                    'per_page': 100,
+                })
+            for thread in result.collection:
+                counts[(thread.get('commentable_id'), thread.get('thread_type'))] += 1
+            if not result.collection or page >= (result.num_pages or 1):
+                break
+            page += 1
+
+    cache.set(cache_key, counts)
+    return counts
+
+
+def get_hidden_reply_counts(course_id, hidden_ids):
+    """
+    Count the hidden responses and replies per thread.
+
+    Forum v2 exposes no "list one user's comments" API -- comment_client's
+    ``Comment.retrieve_all`` still points at the removed v1 HTTP service and
+    raises -- so this reads the MySQL backend's models directly. On the Mongo
+    backend those tables are empty, so it returns nothing and the reply counts
+    are simply left alone rather than being silently wrong.
+    """
+    course_key = _coerce_course_key(course_id)
+    if course_key is None or not hidden_ids:
+        return Counter()
+
+    cache = RequestCache(REQUEST_CACHE_NAMESPACE)
+    cache_key = _breakdown_cache(course_key, hidden_ids, 'replycounts')
+    cached = cache.get_cached_response(cache_key)
+    if cached.is_found:
+        return cached.value
+
+    counts = Counter()
+    try:
+        from forum.toggles import ENABLE_MYSQL_BACKEND
+        if ENABLE_MYSQL_BACKEND.is_enabled(course_key):
+            from forum.backends.mysql.models import Comment
+            author_ids = [int(uid) for uid in hidden_ids if str(uid).isdigit()]
+            rows = Comment.objects.filter(
+                comment_thread__course_id=str(course_key),
+                author_id__in=author_ids,
+            ).values_list('comment_thread_id', flat=True)
+            counts = Counter(str(thread_id) for thread_id in rows)
+    except Exception:  # pylint: disable=broad-except
+        # An inflated reply count is a cosmetic leak; a 500 on every forum page
+        # is not. Log and carry on with the unadjusted numbers.
+        log.exception('Shadow mute: could not count hidden replies for %s', course_key)
+
+    cache.set(cache_key, counts)
+    return counts
+
+
+def filter_commentable_counts(stats, course_id, viewer=None):
+    """
+    Subtract the hidden threads from the per-topic counts in place.
+
+    Without this the Discussions MFE topic list still advertises a shadow-muted
+    author's threads -- a topic reading "3 discussions" that opens showing 2 is
+    exactly the tell a shadow mute is supposed to avoid.
+    """
+    if not isinstance(stats, dict):
+        return stats
+
+    hidden_ids = get_hidden_author_ids(course_id, viewer)
+    if not hidden_ids:
+        return stats
+
+    for (commentable_id, thread_type), removed in get_hidden_topic_counts(course_id, hidden_ids).items():
+        topic = stats.get(commentable_id)
+        if isinstance(topic, dict) and thread_type in topic:
+            _decrement(topic, thread_type, removed)
+    return stats

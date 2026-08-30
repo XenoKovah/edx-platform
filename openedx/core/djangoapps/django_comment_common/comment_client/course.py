@@ -45,6 +45,9 @@ def get_course_commentable_counts(course_key: CourseKey) -> Dict[str, Dict[str, 
             ],
             metric_action='commentable_stats.retrieve',
         )
+    # OST2: a shadow-muted author's threads must not still be advertised in the
+    # per-topic counts the Discussions MFE topic list renders.
+    commentable_stats = shadow_mute.filter_commentable_counts(commentable_stats, course_key)
     return commentable_stats
 
 
