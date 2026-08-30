@@ -115,3 +115,87 @@ def post_save_callback(sender, **kwargs):
         instance.orig_state = instance.state
         instance.orig_all_organizations = instance.all_organizations
         instance.save()
+
+
+class CourseCreatorAllowlist(models.Model):
+    """
+    Pre-approves an email address for Studio course creation rights.
+
+    A row may be added before the matching account exists, which is the point:
+    an administrator can approve an incoming instructor by email address, and
+    that instructor never has to click "Request the Ability to Create Courses".
+
+    The entry is *redeemed* the first time Studio looks up the course creator
+    status of the account owning that email address -- a CourseCreator record is
+    created (or upgraded) with state 'granted', which in turn adds the user to
+    the course creator group.  Redemption is recorded on the row so it happens
+    at most once; later changes made on the CourseCreator admin page are not
+    undone by a stale pre-approval.
+
+    .. pii: Stores an email address supplied by an administrator so that course
+        creation rights can be granted before the account is registered.
+    .. pii_types: email_address
+    .. pii_retirement: retained
+    """
+    email = models.EmailField(
+        unique=True,
+        help_text=_("Email address to pre-approve for course creation. "
+                    "The account does not have to exist yet.")
+    )
+    note = models.CharField(
+        max_length=512,
+        blank=True,
+        help_text=_("Optional notes about this pre-approval (for example, who asked for it).")
+    )
+    created = models.DateTimeField(
+        auto_now_add=True,
+        help_text=_("The date when this email address was pre-approved")
+    )
+    created_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text=_("The staff user who pre-approved this email address. Course creation rights "
+                    "are granted on their behalf.")
+    )
+    redeemed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_("The date when course creation rights were actually granted. Empty until an "
+                    "account with this email address registers and opens Studio.")
+    )
+    redeemed_user = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text=_("The account that redeemed this pre-approval.")
+    )
+
+    class Meta:
+        verbose_name = _("pre-approved course creator email")
+        verbose_name_plural = _("pre-approved course creator emails")
+
+    def __str__(self):
+        if self.redeemed_at:
+            return f"{self.email} | granted [{self.redeemed_at}]"
+        return f"{self.email} | awaiting registration"
+
+    def clean(self):
+        """
+        Normalize the email address so lookups do not depend on database collation.
+        """
+        super().clean()
+        if self.email:
+            self.email = self.email.strip().lower()
+
+    def save(self, *args, **kwargs):  # pylint: disable=signature-differs
+        # Normalize here as well as in clean() so that rows created outside the
+        # admin form (shell, management commands) are stored the same way.
+        if self.email:
+            self.email = self.email.strip().lower()
+        super().save(*args, **kwargs)
