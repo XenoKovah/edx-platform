@@ -56,6 +56,7 @@ class SubsectionScoresSerializer(ReadOnlySerializer):
             {
                 'earned': score.earned,
                 'possible': score.possible,
+                'attempted': score.first_attempted is not None,
             }
             for score in subsection.problem_scores.values()
         ]

@@ -111,6 +111,7 @@ class ProgressTabView(RetrieveAPIView):
                 problem_scores: List of objects that represent individual problem scores with the following fields:
                     earned: (float) number of earned points
                     possible: (float) number of possible points
+                    attempted: (bool) whether the learner has attempted/submitted this problem
                 show_correctness: (str) a str representing whether to show the problem/practice scores based on due date
                                   ('always', 'never', 'past_due', values defined in
                                    xmodule/modulestore/inheritance.py)
