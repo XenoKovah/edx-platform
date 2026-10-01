@@ -57,8 +57,9 @@ class SubsectionScoresSerializer(ReadOnlySerializer):
                 'earned': score.earned,
                 'possible': score.possible,
                 'attempted': score.first_attempted is not None,
+                'url': self._jump_to_url(subsection, block_key),
             }
-            for score in subsection.problem_scores.values()
+            for block_key, score in subsection.problem_scores.items()
         ]
         return problem_scores
 
@@ -67,12 +68,19 @@ class SubsectionScoresSerializer(ReadOnlySerializer):
         Returns the URL for the subsection while taking into account if the course team has
         marked the subsection's visibility as hide after due.
         """
+        return self._jump_to_url(subsection, subsection.location)
+
+    def _jump_to_url(self, subsection, location):
+        """
+        Absolute jump_to URL for a block in this subsection, or None when the course team has
+        hidden the subsection after its due date.
+        """
         hide_url_date = subsection.end if subsection.self_paced else subsection.due
         if (not self.context['staff_access'] and subsection.hide_after_due and hide_url_date
                 and datetime.now(UTC) > hide_url_date):
             return None
 
-        relative_path = reverse('jump_to', args=[self.context['course_key'], subsection.location])
+        relative_path = reverse('jump_to', args=[self.context['course_key'], location])
         request = self.context['request']
         return request.build_absolute_uri(relative_path)
 

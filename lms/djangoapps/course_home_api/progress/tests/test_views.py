@@ -281,6 +281,26 @@ class ProgressTabTestViews(BaseCourseHomeTests):
         assert regular_subsection['url'] is not None
         assert hide_after_due_subsection['url'] is None
 
+    def test_problem_scores_link_to_their_problem(self):
+        problem = self.add_subsection_with_problem()
+        yesterday = now() - timedelta(days=1)
+        hidden_problem = self.add_subsection_with_problem(hide_after_due=True, due=yesterday)
+
+        CourseEnrollment.enroll(self.user, self.course.id)
+
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+
+        subsections = [sub for chapter in response.data['section_scores'] for sub in chapter['subsections']]
+        urls = {
+            score['url'] is None and 'hidden' or 'visible': score['url']
+            for sub in subsections for score in sub['problem_scores']
+        }
+        assert str(problem.location) in urls['visible']
+        assert '/jump_to/' in urls['visible']
+        assert urls['hidden'] is None
+        assert hidden_problem.location is not None
+
     @ddt.data(
         (True, 0.7),  # midterm and final are visible to staff
         (False, 0.3),  # just the midterm is visible to learners
