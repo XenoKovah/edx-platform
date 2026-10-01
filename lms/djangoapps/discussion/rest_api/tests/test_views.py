@@ -3632,6 +3632,45 @@ class CourseActivityStatsTest(ForumsEnableMixin, UrlResetMixin, CommentsServiceM
         self.assertFalse(data['results'])
         assert data['pagination']['count'] == 0
 
+    @mock.patch.dict("django.conf.settings.FEATURES", {'ENABLE_DISCUSSION_SERVICE': True})
+    def test_username_search_hides_users_without_discussion_activity(self):
+        """
+        A learner search lists only users with some threads, responses or replies.
+        """
+        quiet = {**self.stats[0], 'threads': 0, 'responses': 0, 'replies': 0}
+        busy = {**self.stats[1], 'threads': 1, 'responses': 0, 'replies': 2}
+        self.register_course_stats_response(self.course_key, [quiet, busy], 1, 1)
+        self.client.login(username=self.moderator.username, password=self.TEST_PASSWORD)
+        data = self.client.get(self.url, {'username': 'user'}).json()
+        assert [row['username'] for row in data['results']] == [busy['username']]
+        assert data['pagination']['count'] == 1
+
+    @mock.patch.dict("django.conf.settings.FEATURES", {'ENABLE_DISCUSSION_SERVICE': True})
+    def test_username_search_with_only_quiet_matches_is_empty(self):
+        """
+        If every matching user has no discussion activity the search finds nobody.
+        """
+        quiet = [{**stat, 'threads': 0, 'responses': 0, 'replies': 0} for stat in self.stats[:3]]
+        self.register_course_stats_response(self.course_key, quiet, 1, 1)
+        self.client.login(username=self.moderator.username, password=self.TEST_PASSWORD)
+        data = self.client.get(self.url, {'username': 'user'}).json()
+        assert data['results'] == []
+        assert data['pagination']['count'] == 0
+
+    @mock.patch.dict("django.conf.settings.FEATURES", {'ENABLE_DISCUSSION_SERVICE': True})
+    def test_username_search_paginates_over_users_with_activity(self):
+        """
+        Pages are cut from the users that are listed, not from all the users that matched the name.
+        """
+        quiet = [{**self.stats[i], 'threads': 0, 'responses': 0, 'replies': 0} for i in range(3)]
+        busy = [{**self.stats[i], 'threads': 1, 'responses': 0, 'replies': 0} for i in range(3, 8)]
+        self.register_course_stats_response(self.course_key, quiet + busy, 1, 1)
+        self.client.login(username=self.moderator.username, password=self.TEST_PASSWORD)
+        data = self.client.get(self.url, {'username': 'user', 'page_size': 2, 'page': 3}).json()
+        assert [row['username'] for row in data['results']] == [busy[4]['username']]
+        assert data['pagination']['count'] == 5
+        assert data['pagination']['num_pages'] == 3
+
     @ddt.data(
         'user-0',
         'USER-1',

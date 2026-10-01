@@ -121,7 +121,6 @@ from .serializers import (
 )
 from .utils import (
     AttributeDict,
-    add_stats_for_users_with_no_discussion_content,
     create_blocks_params,
     discussion_open_for_user,
     get_usernames_for_course,
@@ -1833,6 +1832,33 @@ def delete_comment(request, comment_id):
         raise PermissionDenied
 
 
+# Page size used to fetch ALL the enrolled users matching a learner search (see
+# get_course_discussion_user_stats).
+ALL_MATCHES_PAGE_SIZE = 100000
+
+
+def _page_of_users_with_activity(user_stats, page, page_size):
+    """
+    Keep only the users with some discussion activity and return one page of them.
+
+    Users with no threads, responses or replies are not listed. The shortest (closest) usernames
+    come first, which is the order the learner search has always used.
+    """
+    active = [
+        stats for stats in user_stats
+        if (stats.get('threads') or 0) + (stats.get('responses') or 0) + (stats.get('replies') or 0) > 0
+    ]
+    active.sort(key=lambda stats: len(stats['username']))
+    count = len(active)
+    start = (page - 1) * page_size
+    return {
+        'user_stats': active[start:start + page_size],
+        'page': page,
+        'num_pages': max(1, -(-count // page_size)),
+        'count': count,
+    }
+
+
 @function_trace("get_course_discussion_user_stats")
 def get_course_discussion_user_stats(
     request,
@@ -1871,15 +1897,19 @@ def get_course_discussion_user_stats(
         'page': page,
         'per_page': page_size,
     }
-    comma_separated_usernames = matched_users_count = matched_users_pages = None
+    comma_separated_usernames = matched_users_count = None
     if username_search_string:
-        comma_separated_usernames, matched_users_count, matched_users_pages = get_usernames_from_search_string(
-            course_key, username_search_string, page, page_size
+        # OST2: every matching enrolled user, not one page of them. Matches without any discussion
+        # activity are dropped below, so the results must be paginated afterwards, over the users
+        # that remain (otherwise a page could hold fewer users than page_size and the counts would
+        # include users that are never shown).
+        comma_separated_usernames, matched_users_count, _ = get_usernames_from_search_string(
+            course_key, username_search_string, 1, ALL_MATCHES_PAGE_SIZE
         )
         search_event_data = {
             'query': username_search_string,
             'search_type': 'Learner',
-            'page': params.get('page'),
+            'page': page,
             'sort_key': params.get('sort_key'),
             'total_results': matched_users_count,
         }
@@ -1891,15 +1921,16 @@ def get_course_discussion_user_stats(
             })
 
         params['usernames'] = comma_separated_usernames
+        # Ask for the stats of all the matches at once; they are paginated below.
+        params['page'] = 1
+        params['per_page'] = matched_users_count
 
     course_stats_response = get_course_user_stats(course_key, params)
 
-    if comma_separated_usernames:
-        updated_course_stats = add_stats_for_users_with_no_discussion_content(
-            course_stats_response["user_stats"],
-            comma_separated_usernames,
+    if username_search_string:
+        course_stats_response = _page_of_users_with_activity(
+            course_stats_response["user_stats"], page, page_size
         )
-        course_stats_response["user_stats"] = updated_course_stats
 
     serializer = UserStatsSerializer(
         course_stats_response["user_stats"],
@@ -1910,8 +1941,8 @@ def get_course_discussion_user_stats(
     paginator = DiscussionAPIPagination(
         request,
         course_stats_response["page"],
-        matched_users_pages if username_search_string else course_stats_response["num_pages"],
-        matched_users_count if username_search_string else course_stats_response["count"],
+        course_stats_response["num_pages"],
+        course_stats_response["count"],
     )
     return paginator.get_paginated_response({
         "results": serializer.data,
