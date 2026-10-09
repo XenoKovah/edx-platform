@@ -200,17 +200,21 @@ def _stats(values):
     }
 
 
-def _summarize(sections, minutes_by_learner, include_incomplete, sections_with_responses):
+def _summarize(sections, minutes_by_learner, include_incomplete, sections_with_responses, excluded_minutes):
     """
     Calculate one view of the report.
 
     `minutes_by_learner` maps each username to a dict of {section key: minutes}.  A learner is only counted if
-    they answered every section that anyone answered, unless `include_incomplete` is set.
+    they answered every section in `sections_with_responses`, unless `include_incomplete` is set.
+
+    `excluded_minutes` holds the answers of the learners that the instructors excluded.  They are not counted
+    in anything, but the ones who would be in this view are still listed, so that they can be put back.
     """
-    included = {
-        username: answered for username, answered in minutes_by_learner.items()
-        if include_incomplete or len(answered) == sections_with_responses
-    }
+    def in_view(answered):
+        return include_incomplete or sections_with_responses <= answered.keys()
+
+    included = {username: answered for username, answered in minutes_by_learner.items() if in_view(answered)}
+    excluded = {username: answered for username, answered in excluded_minutes.items() if in_view(answered)}
     totals = {username: sum(answered.values()) for username, answered in included.items()}
 
     section_rows = []
@@ -230,34 +234,49 @@ def _summarize(sections, minutes_by_learner, include_incomplete, sections_with_r
         'average_total': total_stats['average'],
         'median_total': total_stats['median'],
         'sections': section_rows,
-        'learner_totals': [
-            {'username': username, 'sections': len(included[username]), 'total': totals[username]}
-            for username in sorted(totals, key=lambda username: (totals[username], username))
-        ],
+        'learner_totals': sorted(
+            [
+                {'username': username, 'sections': len(answered), 'total': sum(answered.values()), 'excluded': False}
+                for username, answered in included.items()
+            ] + [
+                {'username': username, 'sections': len(answered), 'total': sum(answered.values()), 'excluded': True}
+                for username, answered in excluded.items()
+            ],
+            key=lambda learner: (learner['total'], learner['username']),
+        ),
     }
 
 
-def build_report(sections, answer_rows):
+def build_report(sections, answer_rows, excluded_usernames=()):
     """
     Calculate the completion time statistics of a course.
 
     `sections` is what ``find_timing_sections`` returns.  `answer_rows` has one ``(username, section key,
     student_answers)`` for every learner's attempt at a Timing Feedback problem that has ``student_answers``.
+    The learners in `excluded_usernames` (outliers that the instructors took out) are left out of every
+    number, exactly as if their answers weren't there, but are still listed in ``learner_totals``.
 
     Returns a dict with the two views that the dashboard offers: ``views['all']`` includes learners who
     skipped some sections, ``views['complete']`` doesn't.  Answers that aren't whole numbers are ignored, and
     counted in ``invalid_responses``.
     """
+    excluded_usernames = set(excluded_usernames)
     sections_by_key = {section.key: section for section in sections}
     sections_with_responses = set()
     minutes_by_learner = defaultdict(dict)
+    excluded_minutes = defaultdict(dict)
+    excluded_found = set()
     invalid_responses = 0
 
     for username, key, student_answers in answer_rows:
         section = sections_by_key.get(key)
         if section is None:
             continue
-        sections_with_responses.add(key)
+        excluded = username in excluded_usernames
+        if excluded:
+            excluded_found.add(username)
+        else:
+            sections_with_responses.add(key)
         answers = extract_time_answers(student_answers, section.hours_first)
         if answers is None:
             continue
@@ -266,9 +285,9 @@ def build_report(sections, answer_rows):
             continue
         total = to_minutes(hours, minutes)
         if total is None:
-            invalid_responses += 1
+            invalid_responses += not excluded
             continue
-        minutes_by_learner[username][key] = total
+        (excluded_minutes if excluded else minutes_by_learner)[username][key] = total
 
     return {
         'sections': [
@@ -282,8 +301,11 @@ def build_report(sections, answer_rows):
             for section in sections
         ],
         'invalid_responses': invalid_responses,
+        'excluded': sorted(excluded_found),
         'views': {
-            'all': _summarize(sections, minutes_by_learner, True, len(sections_with_responses)),
-            'complete': _summarize(sections, minutes_by_learner, False, len(sections_with_responses)),
+            name: _summarize(
+                sections, minutes_by_learner, include_incomplete, sections_with_responses, excluded_minutes
+            )
+            for name, include_incomplete in (('all', True), ('complete', False))
         },
     }

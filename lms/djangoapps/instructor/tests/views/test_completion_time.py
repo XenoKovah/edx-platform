@@ -119,16 +119,32 @@ class CompletionTimeReportTest(CompletionTimeTestCase):
         everyone = report['views']['all']
         assert everyone['learners'] == 2
         assert everyone['learner_totals'] == [
-            {'username': 'bob', 'sections': 1, 'total': 45},
-            {'username': 'alice', 'sections': 2, 'total': 210},
+            {'username': 'bob', 'sections': 1, 'total': 45, 'excluded': False},
+            {'username': 'alice', 'sections': 2, 'total': 210, 'excluded': False},
         ]
         assert [(s['count'], s['average']) for s in everyone['sections']] == [(2, 67.5), (1, 120)]
         assert everyone['sum_of_averages'] == 187.5
 
         complete = report['views']['complete']
         assert complete['learners'] == 1
-        assert complete['learner_totals'] == [{'username': 'alice', 'sections': 2, 'total': 210}]
+        assert complete['learner_totals'] == [{'username': 'alice', 'sections': 2, 'total': 210, 'excluded': False}]
         assert complete['sum_of_averages'] == 210
+
+    def test_excluded_learners_are_left_out(self):
+        alice, bob, carol = (UserFactory.create(username=name) for name in ('alice', 'bob', 'carol'))
+        self.answer(alice, self.problems[0], '01', '00')
+        self.answer(bob, self.problems[0], '00', '30')
+        self.answer(carol, self.problems[0], '12', '59')
+
+        report = self.client.get(self.url, {'exclude': ['carol', ' bob ', '', 'someone-else']}).json()
+
+        assert report['excluded'] == ['bob', 'carol']
+        everyone = report['views']['all']
+        assert everyone['learners'] == 1
+        assert everyone['sections'][0]['average'] == 60
+        assert [(learner['username'], learner['excluded']) for learner in everyone['learner_totals']] == [
+            ('bob', True), ('alice', False), ('carol', True),
+        ]
 
     def test_answers_to_the_same_problem_in_another_course_are_not_counted(self):
         other_course = CourseFactory.create()

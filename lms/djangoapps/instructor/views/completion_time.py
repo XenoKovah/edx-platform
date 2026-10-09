@@ -45,12 +45,13 @@ class CompletionTimeReport(APIView):
     Respond with how long the course's learners say that it takes, from their Timing Feedback answers.
 
     The Timing Feedback sections are found by looking at the course, so nothing has to be configured.
-    The statistics are calculated afresh on every request.
+    The statistics are calculated afresh on every request.  ``?exclude=<username>``, repeated for each one, leaves
+    those learners out of the numbers.
     """
     permission_classes = (IsAuthenticated, permissions.InstructorPermission)
     permission_name = permissions.VIEW_COMPLETION_TIME
 
-    def get(self, request, course_id):  # pylint: disable=unused-argument
+    def get(self, request, course_id):
         """
         Return the report as JSON.
         """
@@ -59,7 +60,8 @@ class CompletionTimeReport(APIView):
         # that find_timing_sections walks to.
         with modulestore().bulk_operations(course_key):
             sections = find_timing_sections(get_course_by_id(course_key, depth=2))
-        report = build_report(sections, _answer_rows(course_key, sections))
+        excluded_usernames = {username.strip() for username in request.GET.getlist('exclude') if username.strip()}
+        report = build_report(sections, _answer_rows(course_key, sections), excluded_usernames)
         report['course_id'] = str(course_key)
         report['generated_at'] = timezone.now().isoformat()
         return JsonResponse(report)

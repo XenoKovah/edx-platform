@@ -7,6 +7,10 @@
  * The server sends the numbers for both views ("All Responses" and "Complete Responses Only") in one response, so
  * switching between them doesn't ask for anything.  Everything that came from the course or from learners (section
  * and user names) is put on the page as text, never as HTML.
+ *
+ * Instructors can tick "Exclude Outlier" for learners whose answers would skew the numbers.  Ticking only records
+ * the choice; the next Refresh recalculates without those learners, in both views.  The choice is kept in the
+ * browser for each course (localStorage), so it also applies to every later visit.
  */
 
 (function($, gettext, _) {
@@ -77,6 +81,8 @@
             this.$panels = this.$container.find('.completion-time-panel');
             this.loaded = false;
             this.loading = false;
+            this.storageKey = 'completionTimeExcluded:' + this.endpoint;
+            this.excluded = this.readExcluded();
 
             this.$refresh.click(function() {
                 self.load();
@@ -109,6 +115,8 @@
                 type: 'GET',
                 dataType: 'json',
                 url: this.endpoint,
+                data: {exclude: this.excludedUsernames()},
+                traditional: true,
                 cache: false,
                 success: function(data) {
                     self.loaded = true;
@@ -128,6 +136,48 @@
                     self.$refresh.prop('disabled', false);
                 }
             });
+        };
+
+        completionTime.prototype.excludedUsernames = function() {
+            return _.keys(this.excluded).sort();
+        };
+
+        // Browsers can refuse storage (private windows, blocked site data), in which case the choice lasts as long
+        // as the page does.
+        completionTime.prototype.readExcluded = function() {
+            var excluded = {};
+            try {
+                $.each(JSON.parse(window.localStorage.getItem(this.storageKey) || '[]'), function(index, username) {
+                    excluded[username] = true;
+                });
+            } catch (error) {
+                return {};
+            }
+            return excluded;
+        };
+
+        completionTime.prototype.saveExcluded = function() {
+            try {
+                window.localStorage.setItem(this.storageKey, JSON.stringify(this.excludedUsernames()));
+            } catch (error) {
+                return;
+            }
+        };
+
+        // Tick or untick a learner everywhere they are listed.  Nothing is recalculated until Refresh is pressed.
+        completionTime.prototype.setExcluded = function(username, exclude) {
+            if (exclude) {
+                this.excluded[username] = true;
+            } else {
+                delete this.excluded[username];
+            }
+            this.saveExcluded();
+            this.$container.find('.completion-time-exclude').each(function() {
+                if (this.getAttribute('data-username') === username) {
+                    this.checked = exclude;
+                }
+            });
+            this.$status.text(gettext('The excluded learners changed. Press Refresh to recalculate.'));
         };
 
         completionTime.prototype.showView = function(view) {
@@ -214,6 +264,17 @@
                     true
                 )));
             }
+            if (data.excluded && data.excluded.length) {
+                $notes.append(element('p', '', interpolate(
+                    ngettext(
+                        '%(count)s learner is excluded from these numbers: %(names)s',
+                        '%(count)s learners are excluded from these numbers: %(names)s',
+                        data.excluded.length
+                    ),
+                    {count: data.excluded.length, names: data.excluded.join(', ')},
+                    true
+                )));
+            }
             if (data.invalid_responses) {
                 $notes.append(element('p', '', interpolate(
                     ngettext(
@@ -240,13 +301,16 @@
                 return;
             }
             target.appendChild(this.summaryList(view));
+            target.appendChild(element('h4', 'hd hd-4', gettext('Time per learner')));
+            target.appendChild(element('p', 'completion-time-description', (viewName === 'complete' ?
+                gettext('Each learner\'s total is the time that they say they spent on every section.') :
+                gettext('Each learner\'s total only adds up the sections that they answered.')) + ' ' +
+                gettext('Tick Exclude Outlier to leave a learner out of every number in both views, ' +
+                        'then press Refresh.')
+            ));
+            target.appendChild(this.learnerTable(view.learner_totals));
             target.appendChild(element('h4', 'hd hd-4', gettext('Time per section')));
             target.appendChild(this.sectionTable(view.sections));
-            target.appendChild(element('h4', 'hd hd-4', gettext('Time per learner')));
-            target.appendChild(element('p', 'completion-time-description', viewName === 'complete' ?
-                gettext('Each learner\'s total is the time that they say they spent on every section.') :
-                gettext('Each learner\'s total only adds up the sections that they answered.')));
-            target.appendChild(this.learnerTable(view.learner_totals));
         };
 
         completionTime.prototype.summaryList = function(view) {
@@ -300,14 +364,15 @@
             return wrapper;
         };
 
-        // The learners start out with the shortest total first, as in the oneshot.sh output; the headings re-sort.
+        // The learners start out with the longest total first, so that outliers are at the top; the headings re-sort.
         completionTime.prototype.learnerTable = function(learners) {
-            var wrapper = element('div', 'completion-time-scroll completion-time-scroll-tall'),
+            var self = this,
+                wrapper = element('div', 'completion-time-scroll completion-time-scroll-tall'),
                 table = element('table', 'completion-time-table'),
                 head = table.createTHead().insertRow(),
                 body = table.createTBody(),
                 rows = learners.slice(),
-                sort = {key: 'total', ascending: true},
+                sort = {key: 'total', ascending: false},
                 columns = [
                     {key: 'username', title: gettext('Learner'), numeric: false},
                     {key: 'sections', title: gettext('Sections answered'), numeric: true},
@@ -324,10 +389,26 @@
                 });
                 $(body).empty();
                 $.each(rows, function(index, learner) {
-                    var row = body.insertRow();
+                    var row = body.insertRow(),
+                        cell = element('td', 'completion-time-exclude-cell'),
+                        checkbox = element('input', 'completion-time-exclude');
                     row.appendChild(element('th', '', learner.username)).scope = 'row';
                     row.appendChild(element('td', 'completion-time-number', learner.sections));
-                    row.appendChild(durationCell(learner.total));
+                    row.appendChild(durationCell(learner.total)).className += ' completion-time-total';
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = !!self.excluded[learner.username];
+                    checkbox.setAttribute('data-username', learner.username);
+                    checkbox.setAttribute('aria-label', interpolate(
+                        gettext('Exclude %(username)s'), {username: learner.username}, true
+                    ));
+                    checkbox.addEventListener('change', function() {
+                        self.setExcluded(learner.username, checkbox.checked);
+                    });
+                    cell.appendChild(checkbox);
+                    row.appendChild(cell);
+                    if (learner.excluded) {
+                        row.className = 'completion-time-excluded';
+                    }
                 });
                 $.each(headings, function(index, heading) {
                     heading.setAttribute(
@@ -353,6 +434,9 @@
                 head.appendChild(cell);
                 headings.push(cell);
             });
+            head.appendChild(
+                element('th', 'completion-time-exclude-cell', gettext('Exclude Outlier'))
+            ).scope = 'col';
             fill();
             wrapper.appendChild(table);
             return wrapper;

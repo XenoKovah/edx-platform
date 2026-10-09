@@ -345,11 +345,11 @@ class BuildReportTest(unittest.TestCase):
             ('Section C', 2, 60, 60, 30, 90),  # alice 90, bob 30
         ]
         assert view['learner_totals'] == [
-            {'username': 'carol', 'sections': 2, 'total': 45},
-            {'username': 'erin', 'sections': 1, 'total': 45},
-            {'username': 'alice', 'sections': 3, 'total': 180},
-            {'username': 'bob', 'sections': 3, 'total': 210},
-            {'username': 'dave', 'sections': 1, 'total': 300},
+            {'username': 'carol', 'sections': 2, 'total': 45, 'excluded': False},
+            {'username': 'erin', 'sections': 1, 'total': 45, 'excluded': False},
+            {'username': 'alice', 'sections': 3, 'total': 180, 'excluded': False},
+            {'username': 'bob', 'sections': 3, 'total': 210, 'excluded': False},
+            {'username': 'dave', 'sections': 1, 'total': 300, 'excluded': False},
         ]
 
     def test_complete_responses_only(self):
@@ -368,18 +368,19 @@ class BuildReportTest(unittest.TestCase):
     def test_answers_that_are_not_whole_numbers_are_ignored_and_counted(self):
         report = timing_feedback.build_report(self.sections, self.rows)
         assert report['invalid_responses'] == 1  # erin's hours
-        assert {'username': 'erin', 'sections': 1, 'total': 45} in report['views']['all']['learner_totals']
+        erin = {'username': 'erin', 'sections': 1, 'total': 45, 'excluded': False}
+        assert erin in report['views']['all']['learner_totals']
 
     def test_the_stored_order_of_the_answers_does_not_matter(self):
         rows = [('alice', 'A', timing_answers('01', '30', 'A', hours_first_in_storage=False))]
         view = timing_feedback.build_report(self.sections, rows)['views']['all']
-        assert view['learner_totals'] == [{'username': 'alice', 'sections': 1, 'total': 90}]
+        assert view['learner_totals'] == [{'username': 'alice', 'sections': 1, 'total': 90, 'excluded': False}]
 
     def test_a_problem_that_asks_for_minutes_first(self):
         sections = [TimingSection('A', 'Section A', 'Timing Feedback A', 'Chapter A', hours_first=False)]
         rows = [('alice', 'A', {'A_2_1': '30', 'A_3_1': '01'})]
         view = timing_feedback.build_report(sections, rows)['views']['all']
-        assert view['learner_totals'] == [{'username': 'alice', 'sections': 1, 'total': 90}]
+        assert view['learner_totals'] == [{'username': 'alice', 'sections': 1, 'total': 90, 'excluded': False}]
 
     def test_sections_that_nobody_answered_do_not_count_against_complete_responses(self):
         sections = self.sections + [TimingSection('D', 'Section D', 'Timing Feedback D', 'Chapter D')]
@@ -398,6 +399,47 @@ class BuildReportTest(unittest.TestCase):
         assert report['sections'][3]['has_responses']
         assert report['views']['complete']['learners'] == 0
         assert report['views']['complete']['average_total'] is None
+        assert report['views']['all']['learners'] == 5
+
+    def test_an_excluded_learner_counts_as_if_their_answers_were_not_there(self):
+        without_dave = [row for row in self.rows if row[0] != 'dave']
+        excluded = timing_feedback.build_report(self.sections, self.rows, excluded_usernames=['dave'])
+        expected = timing_feedback.build_report(self.sections, without_dave)
+        for name in ('all', 'complete'):
+            excluded_view, expected_view = excluded['views'][name], expected['views'][name]
+            assert [learner for learner in excluded_view['learner_totals'] if not learner['excluded']] == (
+                expected_view['learner_totals']
+            )
+            for key in ('learners', 'sum_of_averages', 'sum_of_medians', 'average_total', 'median_total', 'sections'):
+                assert excluded_view[key] == expected_view[key], (name, key)
+        # section A's average drops from 127.5 to 70: 70 + 37.5 + 60
+        assert excluded['views']['all']['sum_of_averages'] == 167.5
+        assert excluded['excluded'] == ['dave']
+
+    def test_excluded_learners_are_still_listed_where_they_would_be(self):
+        report = timing_feedback.build_report(self.sections, self.rows, excluded_usernames=['dave', 'alice'])
+        everyone = report['views']['all']['learner_totals']
+        assert {'username': 'dave', 'sections': 1, 'total': 300, 'excluded': True} in everyone
+        assert {'username': 'alice', 'sections': 3, 'total': 180, 'excluded': True} in everyone
+        # dave did not answer every section, so he is not in the complete view at all; alice is, but not counted
+        complete = report['views']['complete']
+        assert [(learner['username'], learner['excluded']) for learner in complete['learner_totals']] == [
+            ('alice', True), ('bob', False),
+        ]
+        assert complete['learners'] == 1
+
+    def test_excluded_learners_do_not_make_a_section_answered_or_count_ignored_answers(self):
+        sections = self.sections + [TimingSection('D', 'Section D', 'Timing Feedback D', 'Chapter D')]
+        rows = self.rows + [('troll', 'D', timing_answers('12', '59', 'D'))]
+        report = timing_feedback.build_report(sections, rows, excluded_usernames=['troll', 'erin'])
+        assert not report['sections'][3]['has_responses']
+        assert report['views']['complete']['learners'] == 2  # alice and bob still answered every answered section
+        assert report['invalid_responses'] == 0  # erin's ignored answer is not counted either
+        assert report['excluded'] == ['erin', 'troll']
+
+    def test_excluding_someone_who_never_answered(self):
+        report = timing_feedback.build_report(self.sections, self.rows, excluded_usernames=['nobody'])
+        assert report['excluded'] == []
         assert report['views']['all']['learners'] == 5
 
     def test_no_sections(self):
