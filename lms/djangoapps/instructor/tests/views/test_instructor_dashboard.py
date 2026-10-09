@@ -549,6 +549,28 @@ class TestInstructorDashboard(ModuleStoreTestCase, LoginEnrollmentTestCase, XssT
         # Max number of student per page is one.  Patched setting MAX_STUDENTS_PER_PAGE_GRADE_BOOK = 1
         assert len(response.mako_context['students']) == 1
 
+    @patch('lms.djangoapps.instructor.views.instructor_dashboard.is_enabled_for_course', return_value=True)
+    def test_extensions_tab_is_hidden(self, _mock_is_enabled):
+        """
+        Verify that the Extensions tab is not shown, even for a course that has due date extensions enabled.
+        """
+        response = self.client.get(self.url)
+        assert response.status_code == 200
+        assert 'extensions' not in [
+            button.attrib['data-section'] for button in pq(response.content)('.instructor-nav button')
+        ]
+
+    @patch('lms.djangoapps.instructor.views.instructor_dashboard.is_enabled_for_course', return_value=True)
+    @patch.dict(settings.FEATURES, {'ENABLE_INSTRUCTOR_EXTENSIONS_TAB': True})
+    def test_extensions_tab_can_be_turned_on(self, _mock_is_enabled):
+        """
+        Verify that the Extensions tab is shown when ENABLE_INSTRUCTOR_EXTENSIONS_TAB is set.
+        """
+        response = self.client.get(self.url)
+        assert 'extensions' in [
+            button.attrib['data-section'] for button in pq(response.content)('.instructor-nav button')
+        ]
+
     def test_open_response_assessment_page(self):
         """
         Test that Open Responses is available only if course contains at least one ORA block

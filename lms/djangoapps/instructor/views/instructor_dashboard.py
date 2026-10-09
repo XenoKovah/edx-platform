@@ -175,7 +175,11 @@ def instructor_dashboard_2(request, course_id):  # lint-amnesty, pylint: disable
             str(course_key), len(paid_modes)
         )
 
-    if access['instructor'] and is_enabled_for_course(course_key):
+    # OST2 does not use due date extensions, so the Extensions tab is hidden unless this feature is turned on.
+    if (
+        settings.FEATURES.get('ENABLE_INSTRUCTOR_EXTENSIONS_TAB', False) and
+        access['instructor'] and is_enabled_for_course(course_key)
+    ):
         sections.insert(3, _section_extensions(course))
 
     # Gate access to course email by feature flag & by course-specific authorization

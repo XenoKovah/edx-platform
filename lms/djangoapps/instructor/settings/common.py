@@ -99,6 +99,16 @@ def plugin_settings(settings):
         # .. toggle_use_cases: opt_in
         'ENABLE_CERTIFICATES_INSTRUCTOR_MANAGE': False,
 
+        # .. toggle_name: FEATURES['ENABLE_INSTRUCTOR_EXTENSIONS_TAB']
+        # .. toggle_implementation: DjangoSetting
+        # .. toggle_default: False
+        # .. toggle_description: Show the Extensions tab of the instructor dashboard, where course instructors give
+        #   learners individual due date extensions. The tab is only shown for courses that have individual due
+        #   dates enabled (see edx-when), whatever this is set to.
+        # .. toggle_use_cases: opt_in
+        # .. toggle_creation_date: 2026-10-09
+        'ENABLE_INSTRUCTOR_EXTENSIONS_TAB': False,
+
         # .. toggle_name: FEATURES['BATCH_ENROLLMENT_NOTIFY_USERS_DEFAULT']
         # .. toggle_implementation: DjangoSetting
         # .. toggle_default: True
