@@ -34,6 +34,7 @@ VIEW_COUPONS = 'instructor.view_coupons'
 EMAIL = 'instructor.email'
 RESCORE_EXAMS = 'instructor.rescore_exams'
 VIEW_REGISTRATION = 'instructor.view_registration'
+VIEW_COMPLETION_TIME = 'instructor.view_completion_time'
 VIEW_DASHBOARD = 'instructor.dashboard'
 VIEW_ENROLLMENTS = 'instructor.view_enrollments'
 VIEW_FORUM_MEMBERS = 'instructor.view_forum_members'
@@ -66,6 +67,8 @@ perms[SHOW_TASKS] = HasAccessRule('staff') | HasRolesRule('data_researcher')
 perms[EMAIL] = HasAccessRule('staff')
 perms[RESCORE_EXAMS] = HasAccessRule('instructor')
 perms[VIEW_REGISTRATION] = HasAccessRule('staff')
+# course staff and instructors, and global staff, but not data researchers who are neither
+perms[VIEW_COMPLETION_TIME] = HasAccessRule('staff')
 perms[VIEW_DASHBOARD] = \
     HasRolesRule(
         'staff',

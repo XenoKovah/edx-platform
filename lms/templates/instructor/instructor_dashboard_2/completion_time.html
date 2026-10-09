@@ -1,0 +1,37 @@
+<%page args="section_data" expression_filter="h"/>
+<%!
+from django.utils.translation import gettext as _
+%>
+
+<div class="completion-time-container" data-endpoint="${ section_data['completion_time_url'] }">
+  <p class="completion-time-intro">
+    ${_("How long learners say that each section of this course takes, calculated from their Timing Feedback answers. The Timing Feedback sections of the course are found automatically.")}
+  </p>
+
+  <div class="completion-time-toolbar">
+    <button type="button" class="btn-blue completion-time-refresh">${_("Refresh")}</button>
+    <span class="completion-time-status" role="status" aria-live="polite"></span>
+  </div>
+
+  <div class="completion-time-error" role="alert" hidden></div>
+  <div class="completion-time-notes" hidden></div>
+
+  <ul class="completion-time-nav" role="tablist" aria-label="${_('Completion time views')}">
+    <li class="nav-item" role="presentation">
+      <button type="button" class="btn-link completion-time-tab active-section" role="tab" id="completion-time-tab-all" aria-controls="completion-time-panel-all" aria-selected="true" data-view="all">${_("All Responses")}</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button type="button" class="btn-link completion-time-tab" role="tab" id="completion-time-tab-complete" aria-controls="completion-time-panel-complete" aria-selected="false" tabindex="-1" data-view="complete">${_("Complete Responses Only")}</button>
+    </li>
+  </ul>
+
+  <div class="completion-time-panel" role="tabpanel" id="completion-time-panel-all" aria-labelledby="completion-time-tab-all" tabindex="0" data-view="all">
+    <p class="completion-time-description">${_("Includes every learner who answered at least one Timing Feedback section, even if they skipped others. Use this to estimate how long each section takes.")}</p>
+    <div class="completion-time-results"></div>
+  </div>
+
+  <div class="completion-time-panel" role="tabpanel" id="completion-time-panel-complete" aria-labelledby="completion-time-tab-complete" tabindex="0" data-view="complete" hidden>
+    <p class="completion-time-description">${_("Includes only learners who answered every Timing Feedback section. Use this to estimate how long the whole course takes.")}</p>
+    <div class="completion-time-results"></div>
+  </div>
+</div>

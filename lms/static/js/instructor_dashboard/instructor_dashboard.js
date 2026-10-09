@@ -201,6 +201,9 @@ such that the value can be defined later than this assignment (file load order).
                 constructor: window.InstructorDashboard.sections.Certificates,
                 $element: idashContent.find('.' + CSS_IDASH_SECTION + '#certificates')
             }, {
+                constructor: window.InstructorDashboard.sections.CompletionTime,
+                $element: idashContent.find('.' + CSS_IDASH_SECTION + '#completion_time')
+            }, {
                 constructor: window.InstructorDashboard.sections.OpenResponseAssessment,
                 $element: idashContent.find('.' + CSS_IDASH_SECTION + '#open_response_assessment')
             }

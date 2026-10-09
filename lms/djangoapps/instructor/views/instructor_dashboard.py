@@ -214,6 +214,10 @@ def instructor_dashboard_2(request, course_id):  # lint-amnesty, pylint: disable
     if certs_enabled and (access['admin'] or (access['instructor'] and certs_instructor_enabled)):
         sections.append(_section_certificates(course))
 
+    # How long learners say the course takes, from their Timing Feedback answers: course staff and instructors only
+    if access['staff']:
+        sections.append(_section_completion_time(course, access))
+
     openassessment_blocks = modulestore().get_items(
         course_key, qualifiers={'category': 'openassessment'}
     )
@@ -629,6 +633,16 @@ def _section_extensions(course):
         ),
     }
     return section_data
+
+
+def _section_completion_time(course, access):
+    """ Provide data for the corresponding dashboard section """
+    return {
+        'section_key': 'completion_time',
+        'section_display_name': _('Completion Time'),
+        'access': access,
+        'completion_time_url': reverse('completion_time', kwargs={'course_id': str(course.id)}),
+    }
 
 
 def _section_data_download(course, access):
