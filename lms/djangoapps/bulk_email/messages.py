@@ -15,6 +15,23 @@ from openedx.core.lib.celery.task_utils import emulate_http_request
 User = get_user_model()
 
 
+def get_list_unsubscribe_headers(email_context):
+    """
+    Returns the headers that let mail clients offer to unsubscribe from the course's email.
+
+    `List-Unsubscribe` (RFC 2369) gives the link, and `List-Unsubscribe-Post` (RFC 8058) says that a POST of
+    `List-Unsubscribe=One-Click` to it unsubscribes with no further step. Gmail and Yahoo require both on bulk
+    mail.
+    """
+    unsubscribe_link = email_context.get('unsubscribe_link')
+    if not unsubscribe_link:
+        return {}
+    return {
+        'List-Unsubscribe': f'<{unsubscribe_link}>',
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    }
+
+
 class CourseEmailMessage(ABC):
     """
     Abstract base class for course email messages
@@ -48,7 +65,8 @@ class DjangoEmail(CourseEmailMessage):
             course_email.subject,
             plaintext_msg,
             email_context['from_address'],
-            [email_context['email']]
+            [email_context['email']],
+            headers=get_list_unsubscribe_headers(email_context),
         )
         message.attach_alternative(html_msg, 'text/html')
         self.message = message
@@ -83,6 +101,7 @@ class ACEEmail(CourseEmailMessage):
             language=email_context['course_language'],
             user_context={"name": email_context['name']},
         )
+        message.headers.update(get_list_unsubscribe_headers(email_context))
         self.message = message
 
     def send(self):

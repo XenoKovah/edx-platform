@@ -167,7 +167,8 @@ def add_headers_to_email_message(message, context):
     Add headers to email message
     """
     if context.get('unsubscribe_url'):
-        message.headers['List-Unsubscribe-Post'] = f"<{context['unsubscribe_url']}>"
+        # RFC 8058: the value must be exactly this, not the URL; the URL goes in List-Unsubscribe.
+        message.headers['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
         message.headers['List-Unsubscribe'] = f"<{context['unsubscribe_url']}>"
     return message
 

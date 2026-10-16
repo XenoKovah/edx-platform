@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.core import mail
 from django.core.management import call_command
+from django.test.client import Client
 from django.urls import reverse
 from edx_ace.channel import ChannelType
 from edx_ace.message import Message
@@ -94,7 +95,7 @@ class TestOptoutCourseEmails(ModuleStoreTestCase):
 
         self.client.login(username=self.instructor.username, password=self.TEST_PASSWORD)
 
-        unsubscribe_link = get_unsubscribed_link(self.student.username, str(self.course.id))
+        unsubscribe_link = get_unsubscribed_link(self.student.id, str(self.course.id))
         response = self.client.post(unsubscribe_link, {'unsubscribe': True})
 
         assert response.status_code == 200
@@ -109,6 +110,27 @@ class TestOptoutCourseEmails(ModuleStoreTestCase):
         response = self.client.post(self.send_mail_url, test_email)
         assert json.loads(response.content.decode('utf-8')) == self.success_content
         assert len(mail.outbox) == 1
+
+    def test_optout_using_one_click_unsubscribe(self):
+        """
+        Make sure email isn't sent to a learner after their mail client's one-click unsubscribe (RFC 8058).
+        """
+        unsubscribe_link = get_unsubscribed_link(self.student.id, str(self.course.id))
+        # Sent by the mail provider: not logged in, no cookies, no CSRF token.
+        response = Client(enforce_csrf_checks=True).post(unsubscribe_link, {'List-Unsubscribe': 'One-Click'})
+        assert response.status_code == 200
+
+        self.client.logout()
+        self.client.login(username=self.instructor.username, password=self.TEST_PASSWORD)
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["myself", "learners"]',
+            'subject': 'Checking one-click unsubscribe',
+            'message': 'test message for all'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+        assert [message.to[0] for message in mail.outbox] == [self.instructor.email]
 
     def test_optin_course(self):
         """

@@ -2,6 +2,8 @@
 Test utils.py
 """
 import datetime
+from types import SimpleNamespace
+
 import ddt
 import pytest
 
@@ -20,6 +22,7 @@ from openedx.core.djangoapps.notifications.email import ONE_CLICK_EMAIL_UNSUB_KE
 from openedx.core.djangoapps.notifications.models import CourseNotificationPreference, Notification
 from openedx.core.djangoapps.notifications.email.utils import (
     add_additional_attributes_to_notifications,
+    add_headers_to_email_message,
     create_app_notifications_dict,
     create_datetime_string,
     create_email_digest_context,
@@ -98,6 +101,21 @@ class TestUtilFunctions(ModuleStoreTestCase):
     def test_datetime_string(self):
         dt = datetime.datetime(2024, 3, 25)
         assert create_datetime_string(dt) == "Monday, Mar 25"
+
+    def test_add_headers_to_email_message(self):
+        """
+        Tests the unsubscribe headers follow RFC 8058: the URL in List-Unsubscribe, the fixed value in
+        List-Unsubscribe-Post
+        """
+        url = 'https://example.com/unsubscribe/abc/def/'
+        message = add_headers_to_email_message(SimpleNamespace(headers={}), {'unsubscribe_url': url})
+        assert message.headers == {
+            'List-Unsubscribe': f'<{url}>',
+            'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+        }
+
+        message = add_headers_to_email_message(SimpleNamespace(headers={}), {})
+        assert message.headers == {}
 
 
 @ddt.ddt

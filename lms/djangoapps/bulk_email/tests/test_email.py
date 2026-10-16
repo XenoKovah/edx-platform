@@ -24,6 +24,7 @@ from common.djangoapps.student.roles import CourseStaffRole
 from common.djangoapps.student.tests.factories import CourseEnrollmentFactory, UserFactory
 from common.djangoapps.student.tests.factories import InstructorFactory
 from common.djangoapps.student.tests.factories import StaffFactory
+from lms.djangoapps.bulk_email.api import get_unsubscribed_link
 from lms.djangoapps.bulk_email.messages import ACEEmail
 from lms.djangoapps.bulk_email.tasks import _get_course_email_context, _get_source_address
 from lms.djangoapps.certificates.data import CertificateStatuses
@@ -292,6 +293,7 @@ class LocalizedFromAddressCourseLangTestCase(SendEmailWithMockedUgettextMixin, E
 
 
 @patch('lms.djangoapps.bulk_email.models.html_to_text', Mock(return_value='Mocking CourseEmail.text_message', autospec=True))  # lint-amnesty, pylint: disable=line-too-long
+@ddt.ddt
 class TestEmailSendFromDashboardMockedHtmlToText(EmailSendFromDashboardTestCase):
     """
     Tests email sending with mocked html_to_text.
@@ -771,8 +773,36 @@ class TestEmailSendFromDashboardMockedHtmlToText(EmailSendFromDashboardTestCase)
             plain_template = m.body
             html_template = m.alternatives[0][0]
 
-            assert 'bulk_email/email/optout/' in plain_template
-            assert 'bulk_email/email/optout/' in html_template
+            assert 'bulk_email/email/unsubscribe/' in plain_template
+            assert 'bulk_email/email/unsubscribe/' in html_template
+
+    @ddt.data(True, False)
+    def test_list_unsubscribe_headers(self, ace_enabled):
+        """
+        Make sure every message has RFC 8058 one-click unsubscribe headers for its own recipient, whether it is
+        sent through edx-ace or directly.
+        """
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["myself", "learners"]',
+            'subject': 'Checking List-Unsubscribe headers',
+            'message': 'test message for all'
+        }
+        user_ids = {user.email: user.id for user in [self.instructor] + self.students}
+        with override_settings(BULK_EMAIL_SEND_USING_EDX_ACE=ace_enabled):
+            response = self.client.post(self.send_mail_url, test_email)
+        if not ace_enabled:
+            # With edx-ace, the task (run eagerly in tests) switches the request's user to each recipient in turn,
+            # so the session middleware refuses this response. In production the task runs in a worker.
+            assert json.loads(response.content.decode('utf-8')) == self.success_content
+        assert sorted(m.to[0] for m in mail.outbox) == sorted(user_ids)
+
+        for m in mail.outbox:
+            unsubscribe_link = get_unsubscribed_link(user_ids[m.to[0]], str(self.course.id))
+            headers = m.message()
+            assert headers['List-Unsubscribe'] == f'<{unsubscribe_link}>'
+            assert headers['List-Unsubscribe-Post'] == 'List-Unsubscribe=One-Click'
+            assert unsubscribe_link in m.body
 
 
 @skipIf(os.environ.get("TRAVIS") == 'true', "Skip this test in Travis CI.")

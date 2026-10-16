@@ -616,8 +616,7 @@ def _send_course_email(entry_id, email_id, to_list, global_email_context, subtas
             email_context['name'] = profile_name
             email_context['user_id'] = user_id
             email_context['course_id'] = str(course_email.course_id)
-            email_context['unsubscribe_link'] = get_unsubscribed_link(current_recipient['username'],
-                                                                      str(course_email.course_id))
+            email_context['unsubscribe_link'] = get_unsubscribed_link(user_id, str(course_email.course_id))
             email_context['unsubscribe_text'] = 'Unsubscribe from course updates for this course'
             email_context['disclaimer'] = (
                 "You are receiving this email because you are enrolled in the "

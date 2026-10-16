@@ -5,6 +5,7 @@ Python APIs exposed by the bulk_email app to other in-process apps.
 import logging
 
 from django.conf import settings
+from django.core import signing
 from django.urls import reverse
 
 from common.djangoapps.course_modes.models import CourseMode
@@ -21,11 +22,12 @@ from lms.djangoapps.bulk_email.models_api import (
     is_bulk_email_feature_enabled,
     is_user_opted_out_for_course
 )
-from lms.djangoapps.discussion.notification_prefs.views import UsernameCipher
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.lib.html_to_text import html_to_text
 
 log = logging.getLogger(__name__)
+
+UNSUBSCRIBE_TOKEN_SALT = 'lms.djangoapps.bulk_email.unsubscribe'
 
 
 def get_emails_enabled(user, course_id):
@@ -45,17 +47,33 @@ def get_emails_enabled(user, course_id):
     return None
 
 
-def get_unsubscribed_link(username, course_id):
+def get_unsubscribed_link(user_id, course_id):
     """
-    :param username: username
-    :param course_id:
-    :return: AES encrypted token based on the user email
+    Returns the link that unsubscribes a user from a course's email without them having to log in.
+
+    The token in the link is signed with SECRET_KEY and names both the user and the course, so it can't be
+    forged or edited to unsubscribe someone else or from another course. Bulk email puts this link both in the
+    message body and in its `List-Unsubscribe` header.
+
+    :param user_id: id of the user
+    :param course_id: course id string
+    :return: absolute URL of the bulk_email_unsubscribe view
     """
     lms_root_url = configuration_helpers.get_value('LMS_ROOT_URL', settings.LMS_ROOT_URL)
-    token = UsernameCipher.encrypt(username)
-    optout_url = reverse('bulk_email_opt_out', kwargs={'token': token, 'course_id': course_id})
-    url = f'{lms_root_url}{optout_url}'
+    token = signing.Signer(salt=UNSUBSCRIBE_TOKEN_SALT).sign_object([user_id, str(course_id)])
+    unsubscribe_url = reverse('bulk_email_unsubscribe', kwargs={'token': token})
+    url = f'{lms_root_url}{unsubscribe_url}'
     return url
+
+
+def get_unsubscribe_token_data(token):
+    """
+    Returns the (user_id, course_id) that a token from `get_unsubscribed_link` was made for.
+
+    Raises `django.core.signing.BadSignature` if the token was not made by `get_unsubscribed_link`.
+    """
+    user_id, course_id = signing.Signer(salt=UNSUBSCRIBE_TOKEN_SALT).unsign_object(token)
+    return user_id, course_id
 
 
 def create_course_email(course_id, sender, targets, subject, html_message, text_message=None, template_name=None,

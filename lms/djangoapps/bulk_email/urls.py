@@ -15,4 +15,9 @@ urlpatterns = [
         views.opt_out_email_updates,
         name='bulk_email_opt_out',
     ),
+    re_path(
+        r'^email/unsubscribe/(?P<token>[a-zA-Z0-9-_:]+)/$',
+        views.unsubscribe_from_course_email,
+        name='bulk_email_unsubscribe',
+    ),
 ]
