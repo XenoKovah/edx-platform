@@ -776,6 +776,24 @@ class TestEmailSendFromDashboardMockedHtmlToText(EmailSendFromDashboardTestCase)
             assert 'bulk_email/email/unsubscribe/' in plain_template
             assert 'bulk_email/email/unsubscribe/' in html_template
 
+    def test_ace_footer_has_no_mailing_address(self):
+        """
+        Make sure the edx-ace footer keeps the copyright line but no longer shows the contact mailing address.
+        """
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["myself"]',
+            'subject': 'Checking the email footer',
+            'message': 'test message for myself'
+        }
+        with override_settings(BULK_EMAIL_SEND_USING_EDX_ACE=True, CONTACT_MAILING_ADDRESS='123 Sesame Street'):
+            response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+        html = mail.outbox[0].alternatives[0][0]
+        assert 'All rights reserved' in html
+        assert 'Our mailing address is' not in html
+        assert '123 Sesame Street' not in html
+
     @ddt.data(True, False)
     def test_list_unsubscribe_headers(self, ace_enabled):
         """
