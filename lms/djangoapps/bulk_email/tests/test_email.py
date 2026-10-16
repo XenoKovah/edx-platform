@@ -33,6 +33,11 @@ from lms.djangoapps.instructor_task.subtasks import update_subtask_status
 from openedx.core.djangoapps.course_groups.cohorts import add_user_to_cohort
 from openedx.core.djangoapps.course_groups.models import CourseCohort
 from openedx.core.djangoapps.enrollments.api import update_enrollment
+from openedx.core.djangoapps.user_api.preferences.email_preference import (
+    EMAIL_PREFERENCE_COURSE,
+    EMAIL_PREFERENCE_NONE,
+    set_email_preference
+)
 from xmodule.modulestore import ModuleStoreEnum  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.django_utils import SharedModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.factories import CourseFactory  # lint-amnesty, pylint: disable=wrong-import-order
@@ -482,6 +487,23 @@ class TestEmailSendFromDashboardMockedHtmlToText(EmailSendFromDashboardTestCase)
         assert len(mail.outbox) == ((1 + len(self.staff)) + len(self.students))
         assert len([e.to[0] for e in mail.outbox]) == \
                len([self.instructor.email] + [s.email for s in self.staff] + [s.email for s in self.students])
+
+    def test_send_to_all_skips_users_who_want_no_email(self):
+        """
+        Make sure learners whose site-wide email preference is "Receive no emails" don't get course email, while
+        learners who chose to receive only course email still do.
+        """
+        set_email_preference(self.students[0], EMAIL_PREFERENCE_NONE)
+        set_email_preference(self.students[1], EMAIL_PREFERENCE_COURSE)
+        test_email = {
+            'action': 'Send email',
+            'send_to': '["learners"]',
+            'subject': 'test subject for learners',
+            'message': 'test message for learners'
+        }
+        response = self.client.post(self.send_mail_url, test_email)
+        assert json.loads(response.content.decode('utf-8')) == self.success_content
+        assert sorted(e.to[0] for e in mail.outbox) == sorted(s.email for s in self.students[1:])
 
     def _award_certificate(self, user, status=CertificateStatuses.downloadable):
         """

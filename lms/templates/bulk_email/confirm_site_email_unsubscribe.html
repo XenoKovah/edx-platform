@@ -1,0 +1,57 @@
+<%page expression_filter="h"/>
+<%!
+from django.conf import settings
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+<%inherit file="../main.html" />
+
+<%namespace name='static' file='../static_content.html'/>
+
+<%block name="pagetitle">${Text(_("Email Preferences"))}</%block>
+<section class="container unsubscribe-bulk-email">
+
+  <section>
+      <h1>
+
+          <%block name="pageheader">${Text(_("Email Preferences"))} </%block>
+
+      </h1>
+
+      %if receives_site_email:
+        <form class="message" action="" method="POST">
+            <input type="hidden" name="unsubscribe" value="true">
+            <p>
+                ${Text(_("Stop receiving site-wide emails from {platform_name}?")).format(
+                    platform_name=HTML("<strong>{}</strong>").format(settings.PLATFORM_NAME),
+                )}
+            </p>
+            <br>
+            <p>
+                ${Text(_("Your email preference will change to {preference}. You will still receive emails from the "
+                         "instructors of the courses you are enrolled in. You can change this at any time in your "
+                         "{link_start}account preferences{link_end}.")).format(
+                    preference=HTML("<strong>{}</strong>").format(course_preference_label),
+                    link_start=HTML('<a href="{}">').format(preferences_link),
+                    link_end=HTML("</a>"),
+                )}
+            </p>
+            <br><br>
+            <input class="button" type="submit" value="${_('Confirm')}">
+        </form>
+      %else:
+        <section class="message">
+            <p>
+                ${Text(_("You are not receiving site-wide emails from {platform_name}. Your email preference is "
+                         "{preference}. You can change it in your {link_start}account preferences{link_end}.")).format(
+                    platform_name=HTML("<strong>{}</strong>").format(settings.PLATFORM_NAME),
+                    preference=HTML("<strong>{}</strong>").format(preference_label),
+                    link_start=HTML('<a href="{}">').format(preferences_link),
+                    link_end=HTML("</a>"),
+                )}
+            </p>
+        </section>
+      %endif
+
+  </section>
+</section>

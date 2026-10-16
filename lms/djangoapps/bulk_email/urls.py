@@ -20,4 +20,9 @@ urlpatterns = [
         views.unsubscribe_from_course_email,
         name='bulk_email_unsubscribe',
     ),
+    re_path(
+        r'^email/site/unsubscribe/(?P<token>[a-zA-Z0-9-_:]+)/$',
+        views.unsubscribe_from_site_email,
+        name='bulk_email_site_email_unsubscribe',
+    ),
 ]

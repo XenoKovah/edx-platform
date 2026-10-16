@@ -29,6 +29,7 @@ from ..errors import (  # lint-amnesty, pylint: disable=unused-import
 from ..helpers import intercept_errors, serializer_is_dirty
 from ..models import UserOrgTag, UserPreference
 from ..serializers import RawUserPreferenceSerializer
+from .email_preference import EMAIL_PREFERENCE_KEY, EMAIL_PREFERENCE_VALUES
 
 log = logging.getLogger(__name__)
 
@@ -436,6 +437,18 @@ def validate_user_preference_serializer(serializer, preference_key, preference_v
             preference_key: {
                 "developer_message": developer_message.format(
                     preference_key=preference_key, preference_value=preference_value
+                ),
+                "user_message": user_message.format(preference_key=preference_key, preference_value=preference_value)
+            }
+        })
+    if preference_key == EMAIL_PREFERENCE_KEY and preference_value not in EMAIL_PREFERENCE_VALUES:
+        developer_message = gettext_noop("Value '{preference_value}' not valid for preference '{preference_key}': Not one of {values}.")  # pylint: disable=line-too-long
+        user_message = gettext_noop("Value '{preference_value}' is not a valid email preference.")
+        raise PreferenceValidationError({
+            preference_key: {
+                "developer_message": developer_message.format(
+                    preference_key=preference_key, preference_value=preference_value,
+                    values=", ".join(EMAIL_PREFERENCE_VALUES),
                 ),
                 "user_message": user_message.format(preference_key=preference_key, preference_value=preference_value)
             }

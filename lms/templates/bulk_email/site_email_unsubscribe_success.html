@@ -1,0 +1,51 @@
+<%page expression_filter="h"/>
+<%!
+from django.conf import settings
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.markup import HTML, Text
+%>
+<%inherit file="../main.html" />
+
+<%namespace name='static' file='../static_content.html'/>
+
+<%block name="pagetitle">${Text(_("Email Preferences"))}</%block>
+<section class="container unsubscribe-bulk-email">
+
+  <section class="message">
+      <h1>
+
+          <%block name="pageheader">${Text(_("Email Preferences"))} </%block>
+
+      </h1>
+
+      <%block name="pagecontent">
+
+            %if receives_site_email:
+                ${Text(_("You will no longer receive site-wide emails from {platform_name}. Your email preference "
+                         "is now {preference}.")).format(
+                    platform_name=HTML("<strong>{}</strong>").format(settings.PLATFORM_NAME),
+                    preference=HTML("<strong>{}</strong>").format(course_preference_label),
+                )}
+            %else:
+                ${Text(_("You are not receiving site-wide emails from {platform_name}. Your email preference is "
+                         "{preference}.")).format(
+                    platform_name=HTML("<strong>{}</strong>").format(settings.PLATFORM_NAME),
+                    preference=HTML("<strong>{}</strong>").format(preference_label),
+                )}
+            %endif
+            ${Text(_("To change it, go to your {link_start}account preferences{link_end}.")).format(
+                link_start=HTML('<a href="{}">').format(preferences_link),
+                link_end=HTML("</a>"),
+            )}
+            <br><br>
+            ${Text(_("{link_start}Return to {platform_name}{link_end}")).format(
+                link_start=HTML("<u> <a href={lms_route_url}>").format(lms_route_url=settings.LMS_ROOT_URL),
+                platform_name=settings.PLATFORM_NAME,
+                link_end=HTML("</a> </u> "),
+            )}
+
+      </%block>
+
+  </section>
+
+</section>

@@ -49,6 +49,10 @@ from lms.djangoapps.instructor_task.subtasks import (
 )
 from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
+from openedx.core.djangoapps.user_api.preferences.email_preference import (
+    EMAIL_PREFERENCE_NONE,
+    get_user_ids_with_email_preference
+)
 from openedx.core.lib.courses import course_image_url
 
 log = logging.getLogger('edx.celery.task')
@@ -415,6 +419,19 @@ def _filter_optouts_from_recipients(to_list, course_id):
     return to_list, num_optout
 
 
+def _filter_email_preference_optouts_from_recipients(to_list):
+    """
+    Filters out the recipients who chose "Receive no emails" as their site-wide email preference.
+
+    Returns the filtered recipient list, as well as the number of recipients removed from it.
+    """
+    opted_out_ids = set(
+        get_user_ids_with_email_preference(EMAIL_PREFERENCE_NONE).filter(user_id__in=[i['pk'] for i in to_list])
+    )
+    to_list = [recipient for recipient in to_list if recipient['pk'] not in opted_out_ids]
+    return to_list, len(opted_out_ids)
+
+
 def _filter_disabled_users_from_recipients(to_list, course_key_str):
     """
     Filters a user if its account is disabled
@@ -565,8 +582,9 @@ def _send_course_email(entry_id, email_id, to_list, global_email_context, subtas
     # in the Optout list.
     if subtask_status.get_retry_count() == 0:
         to_list, num_optout = _filter_optouts_from_recipients(to_list, course_email.course_id)
+        to_list, num_no_email = _filter_email_preference_optouts_from_recipients(to_list)
         to_list, num_disabled = _filter_disabled_users_from_recipients(to_list, str(course_email.course_id))
-        subtask_status.increment(skipped=num_optout + num_disabled)
+        subtask_status.increment(skipped=num_optout + num_no_email + num_disabled)
 
     course_title = global_email_context['course_title']
     course_language = global_email_context['course_language']
