@@ -76,7 +76,7 @@ from lms.djangoapps.commerce.utils import EcommerceService
 from lms.djangoapps.course_goals.models import UserActivity
 from lms.djangoapps.course_home_api.toggles import course_home_mfe_progress_tab_is_active
 from lms.djangoapps.courseware.access import has_access, has_ccx_coach_role
-from lms.djangoapps.courseware.access_utils import check_public_access
+from lms.djangoapps.courseware.access_utils import check_public_access, is_unenrolled_learner_on_public_course
 from lms.djangoapps.courseware.courses import (
     can_self_enroll_in_course,
     course_open_for_self_enrollment,
@@ -1610,6 +1610,14 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
                 request.user, usage_key.course_key, request=request, only_if_mobile_app=True
             )
 
+            # OST2: a signed-in learner who is not enrolled in a public course gets the read-only public_view,
+            # whatever view the client asked for (the Learning MFE asks for student_view whenever the user is
+            # signed in), so nothing is offered to them that would only count after enrolling.
+            if requested_view == 'student_view' and is_unenrolled_learner_on_public_course(
+                request.user, course, staff_access
+            ):
+                requested_view = 'public_view'
+
             # get the block, which verifies whether the user has access to the block.
             recheck_access = request.GET.get('recheck_access') == '1'
             block, _ = get_block_by_usage_id(
@@ -1624,6 +1632,8 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
             student_view_context = request.GET.dict()
             student_view_context['show_bookmark_button'] = request.GET.get('show_bookmark_button', '0') == '1'
             student_view_context['show_title'] = request.GET.get('show_title', '1') == '1'
+            # OST2: lets the default public_view banner ask a signed-in learner to enroll, not to sign in.
+            student_view_context['ost2_signed_in'] = request.user.is_authenticated
 
             is_learning_mfe = is_request_from_learning_mfe(request)
             # Right now, we only care about this in regards to the Learning MFE because it results
@@ -1636,7 +1646,11 @@ def render_xblock(request, usage_key_string, check_if_enrolled=True, disable_sta
 
             enable_completion_on_view_service = False
             completion_service = block.runtime.service(block, 'completion')
-            if completion_service and completion_service.completion_tracking_enabled():
+            # OST2: public_view records nothing, so it does not mark content complete on view either.
+            if (
+                requested_view == 'student_view'
+                and completion_service and completion_service.completion_tracking_enabled()
+            ):
                 if completion_service.blocks_to_mark_complete_on_view({block}):
                     enable_completion_on_view_service = True
                     student_view_context['wrap_xblock_data'] = {

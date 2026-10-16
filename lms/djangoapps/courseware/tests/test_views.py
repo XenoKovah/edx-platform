@@ -35,6 +35,7 @@ from web_fragments.fragment import Fragment
 from xblock.core import XBlock
 from xblock.fields import Scope, String
 from xmodule.capa.tests.response_xml_factory import MultipleChoiceResponseXMLFactory
+from xmodule.course_block import COURSE_VISIBILITY_PUBLIC
 from xmodule.data import CertificatesDisplayBehaviors
 from xmodule.graders import ShowCorrectness
 from xmodule.modulestore import ModuleStoreEnum
@@ -104,6 +105,7 @@ from openedx.core.lib.url_utils import quote_slashes
 from openedx.features.content_type_gating.models import ContentTypeGatingConfig
 from openedx.features.course_duration_limits.models import CourseDurationLimitConfig
 from openedx.features.course_experience import (
+    COURSE_ENABLE_UNENROLLED_ACCESS_FLAG,
     DISABLE_COURSE_OUTLINE_PAGE_FLAG,
 )
 from openedx.features.course_experience.tests.views.helpers import add_course_mode
@@ -2793,6 +2795,88 @@ class TestRenderXBlock(RenderXBlockTestMixin, ModuleStoreTestCase, CompletionWaf
         assert response.status_code == 200
         self.assertContains(response, 'data-enable-completion-on-view-service="false"')
         self.assertNotContains(response, 'data-mark-completed-on-view-after-delay')
+
+    def _setup_public_course(self, admin=False, enroll=False, login=True):
+        """
+        OST2: a course with public visibility (and unenrolled access on), rendered as its vertical.
+        """
+        self.block_name_to_be_tested = 'vertical_block'
+        self.setup_course(ModuleStoreEnum.Type.split)
+        self.course.course_visibility = COURSE_VISIBILITY_PUBLIC
+        self.course = self.store.update_item(self.course, ModuleStoreEnum.UserID.test)
+        self.setup_user(admin=admin, enroll=enroll, login=login)
+
+    @override_waffle_flag(COURSE_ENABLE_UNENROLLED_ACCESS_FLAG, active=True)
+    def test_public_course_unenrolled_learner_gets_public_view(self):
+        """
+        OST2: a signed-in learner who is not enrolled in a public course gets the read-only public_view even
+        when asking for student_view: content still reads, the problem shows an "enroll" banner (no "sign in"),
+        and nothing is marked complete on view.
+        """
+        self.override_waffle_switch(True)
+        self._setup_public_course()
+        response = self.verify_response(url_params={'view': 'student_view'})
+        self.assertContains(
+            response, 'Problem is only accessible to enrolled learners. Enroll in this course to view it.'
+        )
+        self.assertNotContains(response, 'Sign in or register')
+        self.assertContains(response, 'data-enable-completion-on-view-service="false"')
+        # Every block renders its public_view (CompletionOnViewService only acts on .xblock-student_view).
+        self.assertNotContains(response, 'xblock-student_view')
+
+    @ddt.data(
+        {'admin': False, 'enroll': True},   # enrolled learner
+        {'admin': True, 'enroll': False},   # unenrolled staff
+    )
+    @ddt.unpack
+    @override_waffle_flag(COURSE_ENABLE_UNENROLLED_ACCESS_FLAG, active=True)
+    def test_public_course_enrolled_or_staff_gets_student_view(self, admin, enroll):
+        """
+        OST2: enrolled learners and course staff keep the full student_view of a public course.
+        """
+        self._setup_public_course(admin=admin, enroll=enroll)
+        response = self.verify_response(is_staff=admin)
+        self.assertNotContains(response, 'only accessible to enrolled learners')
+
+    @override_waffle_flag(COURSE_ENABLE_UNENROLLED_ACCESS_FLAG, active=True)
+    def test_public_course_anonymous_banner_asks_to_sign_in(self):
+        """
+        OST2: a logged-out visitor still gets the stock banner that asks them to sign in or register.
+        """
+        self._setup_public_course(login=False)
+        response = self.verify_response(url_params={'view': 'public_view'})
+        self.assertContains(
+            response,
+            'Problem is only accessible to enrolled learners. '
+            'Sign in or register, and enroll in this course to view it.'
+        )
+
+    @ddt.data(True, False)
+    @override_waffle_flag(COURSE_ENABLE_UNENROLLED_ACCESS_FLAG, active=True)
+    def test_public_course_handler_refuses_unenrolled_learner_writes(self, enroll):
+        """
+        OST2: XBlock handler writes from a signed-in learner who is not enrolled in a public course are refused,
+        so no completion, submission or position is recorded without an enrollment; enrolled learners are unaffected.
+        """
+        self.override_waffle_switch(True)
+        self._setup_public_course(enroll=enroll)
+        request = RequestFactoryNoCsrf().post(
+            '/',
+            data=json.dumps({"completion": 1}),
+            content_type='application/json',
+        )
+        request.user = self.user
+        response = handle_xblock_callback(
+            request,
+            str(self.course.id),
+            quote_slashes(str(self.html_block.location)),
+            'publish_completion',
+        )
+        if enroll:
+            assert response.status_code == 200
+        else:
+            assert response.status_code == 403
+            assert response.content == b'Enroll in this course to save your progress.'
 
     def test_rendering_descendant_of_gated_sequence(self):
         """

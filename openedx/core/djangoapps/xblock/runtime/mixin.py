@@ -66,6 +66,6 @@ class LmsBlockMixin(XBlockMixin):
         else:
             # This is a registered user but they're still seeing public_view
             # so they must be excluded because of enrollment status.
-            display_text = _('This content is only accessible to enrolled learners. ')
+            display_text = _('This content is only accessible to enrolled learners. Enroll in this course to view it.')
 
         return Fragment(alert_html.format(display_text))

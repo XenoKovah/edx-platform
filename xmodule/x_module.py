@@ -83,6 +83,11 @@ DEFAULT_PUBLIC_VIEW_MESSAGE = (
     'This content is only accessible to enrolled learners. '
     'Sign in or register, and enroll in this course to view it.'
 )
+# OST2: for a signed-in learner who sees public_view because they are not enrolled.
+DEFAULT_SIGNED_IN_PUBLIC_VIEW_MESSAGE = (
+    'This content is only accessible to enrolled learners. '
+    'Enroll in this course to view it.'
+)
 
 
 # Make '_' a no-op so we can scrape strings. Using lambda instead of
@@ -713,7 +718,7 @@ class XModuleMixin(XModuleFields, XBlock):
 
         return metadata_field_editor_info
 
-    def public_view(self, _context):
+    def public_view(self, context):
         """
         Default message for blocks that don't implement public_view
         """
@@ -723,13 +728,23 @@ class XModuleMixin(XModuleFields, XBlock):
             '<div class="message-content">{}</div></div></div>'
         )
 
+        # OST2: render_xblock also shows public_view to signed-in learners who are not enrolled in a public
+        # course (and says so in the context); they only need to enroll, not to sign in or register.
+        signed_in = bool((context or {}).get('ost2_signed_in'))
         if self.display_name:
-            display_text = _(
-                '{display_name} is only accessible to enrolled learners. '
-                'Sign in or register, and enroll in this course to view it.'
-            ).format(
-                display_name=self.display_name
-            )
+            if signed_in:
+                display_text = _(
+                    '{display_name} is only accessible to enrolled learners. '
+                    'Enroll in this course to view it.'
+                )
+            else:
+                display_text = _(
+                    '{display_name} is only accessible to enrolled learners. '
+                    'Sign in or register, and enroll in this course to view it.'
+                )
+            display_text = display_text.format(display_name=self.display_name)
+        elif signed_in:
+            display_text = _(DEFAULT_SIGNED_IN_PUBLIC_VIEW_MESSAGE)  # lint-amnesty, pylint: disable=translation-of-non-string
         else:
             display_text = _(DEFAULT_PUBLIC_VIEW_MESSAGE)  # lint-amnesty, pylint: disable=translation-of-non-string
 

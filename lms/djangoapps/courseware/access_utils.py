@@ -195,6 +195,27 @@ def check_enrollment(user, course):
     return EnrollmentRequiredAccessError()
 
 
+def is_unenrolled_learner_on_public_course(user, course, is_staff):
+    """
+    OST2: True for a signed-in, non-staff user who is not enrolled in a course with public visibility.
+
+    check_enrollment() lets anyone into a public course, so without this a signed-in learner could do the
+    coursework (Mark as complete, problems) without ever enrolling, and none of it would count: no
+    certificate, and invisible to "View as Specific Student", grade reports and bulk email. Such learners
+    get the read-only public_view a logged-out visitor gets (as the pre-MFE courseware did), and their
+    XBlock handler writes are refused.
+
+    `is_staff` is the caller's staff check on the course, made before any masquerade is applied, so
+    course staff keep the full view.
+    """
+    return bool(
+        user.is_authenticated
+        and not is_staff
+        and check_public_access(course, [COURSE_VISIBILITY_PUBLIC])
+        and not CourseEnrollment.is_enrolled(user, course.id)
+    )
+
+
 def check_authentication(user, course):
     """
     Grants access if the user is authenticated, or if the course allows public access.

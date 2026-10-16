@@ -54,6 +54,7 @@ from xmodule.services import EventPublishingService, RebindUserService, Settings
 from common.djangoapps.static_replace.services import ReplaceURLService
 from common.djangoapps.static_replace.wrapper import replace_urls_wrapper
 from lms.djangoapps.courseware.access import get_user_role, has_access
+from lms.djangoapps.courseware.access_utils import is_unenrolled_learner_on_public_course
 from lms.djangoapps.courseware.entrance_exams import user_can_skip_entrance_exam, user_has_passed_entrance_exam
 from lms.djangoapps.courseware.masquerade import (
     MasqueradingKeyValueStore,
@@ -801,6 +802,14 @@ def handle_xblock_callback(request, course_id, usage_id, handler, suffix=None):
             course = modulestore().get_course(course_key)
         except ItemNotFoundError:
             raise Http404(f'{course_id} does not exist in the modulestore')  # lint-amnesty, pylint: disable=raise-missing-from
+
+        # OST2: a signed-in learner who is not enrolled in a public course reads it like a logged-out visitor
+        # and cannot record anything (completion, submissions, positions), since none of it would count.
+        # Checked before the masquerade is set up, so staff (and staff masquerading) are not affected.
+        if request.method != 'GET' and course is not None and is_unenrolled_learner_on_public_course(
+            request.user, course, bool(has_access(request.user, 'staff', course_key))
+        ):
+            return HttpResponseForbidden('Enroll in this course to save your progress.')
 
         return _invoke_xblock_handler(request, course_id, usage_id, handler, suffix, course=course)
 
