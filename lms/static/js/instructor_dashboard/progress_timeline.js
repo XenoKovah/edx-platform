@@ -103,7 +103,7 @@
         this.profileBase = /^(https?:\/\/|\/)/.test(container.getAttribute('data-profile-url') || '') ?
             container.getAttribute('data-profile-url') : '';
         this.q = function(selector) { return container.querySelector(selector); };
-        this.period = 'day';
+        this.period = 'month';
         this.data = null;
         this.series = null;
         this.selected = -1;

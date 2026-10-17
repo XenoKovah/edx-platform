@@ -259,5 +259,6 @@ class ProgressTimelineTabTest(ProgressTimelineTestCase):
         assert container.find('.pt-limit').attr('max') == '1000'
         assert container.find('.pt-limit').attr('value') == '20'
         assert [b.attrib['data-period'] for b in container.find('.pt-period-btn')] == ['day', 'week', 'month', 'custom']
-        assert container.find('.pt-changed')
+        assert container.find('.pt-period-btn[aria-pressed="true"]').attr('data-period') == 'month'
+        assert container.find('.pt-changed').attr('checked') is not None
         assert container.find('canvas.pt-lines')

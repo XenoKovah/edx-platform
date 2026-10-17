@@ -9,9 +9,9 @@ from django.utils.translation import gettext as _
 
   <form class="pt-controls" novalidate>
     <div class="pt-period" role="group" aria-label="${_('Period')}">
-      <button type="button" class="pt-period-btn" data-period="day" aria-pressed="true">${_("Last day")}</button>
+      <button type="button" class="pt-period-btn" data-period="day" aria-pressed="false">${_("Last day")}</button>
       <button type="button" class="pt-period-btn" data-period="week" aria-pressed="false">${_("Last week")}</button>
-      <button type="button" class="pt-period-btn" data-period="month" aria-pressed="false">${_("Last month")}</button>
+      <button type="button" class="pt-period-btn" data-period="month" aria-pressed="true">${_("Last month")}</button>
       <button type="button" class="pt-period-btn" data-period="custom" aria-pressed="false">${_("Custom range")}</button>
     </div>
     <div class="pt-custom" hidden>
@@ -37,7 +37,7 @@ from django.utils.translation import gettext as _
         <option value="recent">${_("Most recently active")}</option>
       </select>
     </label>
-    <label class="pt-check"><input type="checkbox" class="pt-changed"> ${_("Remove users with no change within time period")}</label>
+    <label class="pt-check"><input type="checkbox" class="pt-changed" checked>${_("Remove users with no change within time period")}</label>
     <button type="submit" class="btn-blue pt-update">${_("Update")}</button>
   </form>
 
