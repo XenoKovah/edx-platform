@@ -37,6 +37,7 @@ from openedx.core.djangoapps.ace_common.message import BaseMessageType
 from openedx.core.djangoapps.ace_common.template_context import get_base_template_context
 from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.django_comment_common.models import DiscussionsIdMapping
+from openedx.core.djangoapps.user_api.preferences.email_preference import EMAIL_PREFERENCE_NONE, get_email_preference
 from openedx.core.lib.celery.task_utils import emulate_http_request
 
 log = logging.getLogger(__name__)
@@ -92,6 +93,13 @@ class NewThreadNotification(BaseMessageType):
 @set_code_owner_attribute
 def send_ace_message(context):  # lint-amnesty, pylint: disable=missing-function-docstring
     context['course_id'] = CourseKey.from_string(context['course_id'])
+
+    if _thread_author_wants_no_email(context):
+        log.info(
+            'Discussion: thread author %s chose to receive no emails, not sending notification about comment %s.',
+            context['thread_author_id'], context.get('comment_id'),
+        )
+        return
 
     if _should_send_message(context):
         context['site'] = Site.objects.get(id=context['site_id'])
@@ -223,6 +231,14 @@ def _track_notification_sent(message, context):
             event_name='edx.bi.email.sent',
             properties=properties
         )
+
+
+def _thread_author_wants_no_email(context):
+    """
+    Returns whether the thread author set their site-wide email preference to "Receive no emails".
+    """
+    thread_author = User.objects.filter(id=context['thread_author_id']).first()
+    return thread_author is not None and get_email_preference(thread_author) == EMAIL_PREFERENCE_NONE
 
 
 def _should_send_message(context):

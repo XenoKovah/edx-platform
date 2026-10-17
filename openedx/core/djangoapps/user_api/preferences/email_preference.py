@@ -5,9 +5,10 @@ It is an ordinary user preference, so users set it on the account settings page 
 "Email Preferences") through the user preferences API. A user who never chose has no row and gets the default,
 EMAIL_PREFERENCE_ALL.
 
-* ``all``: site-wide email (see lms.djangoapps.bulk_email.site_email) and email from course instructors.
-* ``course``: only email that instructors send to the learners enrolled in their course.
-* ``none``: neither.
+* ``all``: site-wide email (see lms.djangoapps.bulk_email.site_email), email from course instructors and
+  email about replies to the user's discussion posts.
+* ``course``: only email from course instructors and email about replies to the user's discussion posts.
+* ``none``: none of them.
 
 Account email, such as password resets and account activation, is always sent.
 """

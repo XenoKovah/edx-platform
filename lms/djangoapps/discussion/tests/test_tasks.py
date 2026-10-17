@@ -29,6 +29,12 @@ from openedx.core.djangoapps.content.course_overviews.tests.factories import Cou
 from openedx.core.djangoapps.django_comment_common.models import ForumsConfig
 from openedx.core.djangoapps.django_comment_common.signals import comment_created
 from openedx.core.djangoapps.site_configuration.tests.factories import SiteConfigurationFactory
+from openedx.core.djangoapps.user_api.preferences.email_preference import (
+    EMAIL_PREFERENCE_ALL,
+    EMAIL_PREFERENCE_COURSE,
+    EMAIL_PREFERENCE_NONE,
+    set_email_preference
+)
 from openedx.core.lib.celery.task_utils import emulate_http_request
 
 NOW = datetime.utcnow()
@@ -328,6 +334,33 @@ class TaskTestCase(ModuleStoreTestCase):  # lint-amnesty, pylint: disable=missin
 
             else:
                 assert not self.mock_ace_send.called
+
+    @ddt.data(
+        (EMAIL_PREFERENCE_ALL, True),
+        (EMAIL_PREFERENCE_COURSE, True),
+        (EMAIL_PREFERENCE_NONE, False),
+    )
+    @ddt.unpack
+    def test_send_discussion_email_notification_email_preference(self, email_preference, should_send):
+        """
+        Thread authors who chose "Receive no emails" are not emailed about replies to their threads.
+        """
+        set_email_preference(self.thread_author, email_preference)
+        site = Site.objects.get_current()
+        site_config = SiteConfigurationFactory.create(site=site)
+        site_config.site_values[ENABLE_FORUM_NOTIFICATIONS_FOR_SITE_KEY] = True
+        site_config.save()
+        self.mock_request.side_effect = make_mock_responder(
+            subscribed_thread_ids=[self.discussion_id],
+            comment_data=self.discussion_comment,
+            thread_data=self.discussion_thread,
+        )
+        comment = cc.Comment.find(id=self.discussion_comment['id']).retrieve()
+        with mock.patch('lms.djangoapps.discussion.rest_api.tasks.send_response_notifications.apply_async'):
+            with mock.patch('lms.djangoapps.discussion.signals.handlers.get_current_site', return_value=site):
+                comment_created.send(sender=None, user=mock.Mock(), post=comment)
+
+        assert self.mock_ace_send.called == should_send
 
     def _assert_rendered_email(self, message, comment):  # lint-amnesty, pylint: disable=missing-function-docstring
         # check that we can actually render the message
