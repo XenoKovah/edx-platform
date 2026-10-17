@@ -3380,3 +3380,154 @@ div.staff_actions {
     font-size: 0.75em;
   }
 }
+
+// view - progress over time
+// --------------------
+// The colors are custom properties with light values, and dark ones for Indigo's dark theme; the chart's canvases read
+// them too.  Kept as plain CSS, the same as the local prototype that it was checked in.
+.progress-timeline-container {
+  --pt-surface: #ffffff;
+  --pt-ink: #0b0b0b;
+  --pt-ink-muted: #52514e;
+  --pt-grid: #e9e8e4;
+  --pt-axis: #a3a29d;
+  --pt-border: #d7d6d1;
+  --pt-tab-hover: #f2f1ee;
+  --pt-tab-active: #e6eefa;
+  --pt-accent: #2a78d6;
+  --pt-gain: #006300;
+  color: var(--pt-ink);
+}
+body.indigo-dark-theme .progress-timeline-container {
+  --pt-surface: #1a1a19;
+  --pt-ink: #ffffff;
+  --pt-ink-muted: #c3c2b7;
+  --pt-grid: #2e2e2b;
+  --pt-axis: #6b6a64;
+  --pt-border: #3d3d39;
+  --pt-tab-hover: #262624;
+  --pt-tab-active: #1d2c42;
+  --pt-accent: #3987e5;
+  --pt-gain: #5ccf5c;
+}
+.progress-timeline-container .pt-intro { max-width: 80ch; margin-bottom: 16px; color: var(--pt-ink-muted); }
+
+/* Controls: one row above the chart, wrapping on narrow screens.  Weights, sizes and letter spacing are set here
+   because the course stylesheet (lms-course.css) restyles every button and label on the instructor dashboard. */
+.progress-timeline-container .pt-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 16px; margin: 0 0 22px; }
+.progress-timeline-container .pt-period { display: inline-flex; border: 1px solid var(--pt-border); border-radius: 6px; overflow: hidden; }
+.progress-timeline-container .pt-period-btn {
+  margin: 0; padding: 8px 14px; border: 0; border-right: 1px solid var(--pt-border); border-radius: 0;
+  background: var(--pt-surface); color: var(--pt-ink); font-size: 14px; font-weight: 400; line-height: 1.2;
+  letter-spacing: 1px; box-shadow: none; text-shadow: none; cursor: pointer;
+}
+.progress-timeline-container .pt-period-btn:last-child { border-right: 0; }
+.progress-timeline-container .pt-period-btn:hover { background: var(--pt-tab-hover); }
+.progress-timeline-container .pt-period-btn[aria-pressed="true"] { background: var(--pt-accent); color: #ffffff; }
+.progress-timeline-container .pt-custom { display: inline-flex; gap: 10px; }
+.progress-timeline-container .pt-custom[hidden] { display: none; }
+.progress-timeline-container .pt-field, .progress-timeline-container .pt-custom label {
+  display: inline-flex; flex-direction: column; gap: 4px; margin: 0; font-size: 13px; font-weight: 300; font-style: italic;
+  color: var(--pt-ink-muted);
+}
+.progress-timeline-container .pt-field { position: relative; }
+.progress-timeline-container .pt-controls input, .progress-timeline-container .pt-controls select {
+  height: 36px; margin: 0; padding: 4px 8px; font-size: 14px; color: var(--pt-ink); background: var(--pt-surface);
+  border: 1px solid var(--pt-border); border-radius: 4px; box-shadow: none;
+}
+.progress-timeline-container .pt-limit { width: 7em; }
+.progress-timeline-container .pt-check {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; margin: 0; font-size: 13px; font-weight: 300; font-style: italic;
+  color: var(--pt-ink);
+}
+.progress-timeline-container .pt-check input { height: auto; margin: 0; }
+.progress-timeline-container .pt-update {
+  height: 36px; margin: 0; padding: 0 18px; font-size: 1.2rem; line-height: 1.6rem; letter-spacing: 1px;
+  box-shadow: inset 0 1px 0 0 #60a2ff;
+}
+.progress-timeline-container .pt-help { position: absolute; top: 100%; margin-top: 2px; font-size: 11px; color: var(--pt-ink-muted); white-space: nowrap; }
+.progress-timeline-container .pt-error {
+  margin: 0 0 12px; padding: 8px 12px; border-left: 4px solid #d03b3b; background: rgba(208, 59, 59, 0.08); color: var(--pt-ink);
+}
+.progress-timeline-container .pt-status { min-height: 1.4em; margin: 0 0 10px; font-size: 13px; color: var(--pt-ink-muted); }
+
+/* Chart + learner tabs. */
+.progress-timeline-container .pt-main { display: flex; align-items: stretch; gap: 16px; }
+.progress-timeline-container .pt-chart {
+  position: relative; flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap;
+  background: var(--pt-surface); border: 1px solid var(--pt-border); border-radius: 8px; padding: 8px 0 4px;
+}
+.progress-timeline-container .pt-yaxis { flex: 0 0 48px; display: block; }
+.progress-timeline-container .pt-scroll {
+  flex: 1 1 0; min-width: 0; overflow-x: auto; overflow-y: hidden; outline-offset: -2px; scrollbar-color: var(--pt-axis) transparent;
+}
+.progress-timeline-container .pt-spacer { position: relative; }
+.progress-timeline-container .pt-stack { position: sticky; left: 0; height: 100%; }
+.progress-timeline-container .pt-stack canvas { position: absolute; top: 0; left: 0; display: block; }
+.progress-timeline-container .pt-tooltip {
+  position: absolute; z-index: 2; max-width: 280px; padding: 8px 10px; pointer-events: none;
+  background: var(--pt-surface); color: var(--pt-ink); border: 1px solid var(--pt-border); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); font-size: 13px; line-height: 1.4;
+}
+.progress-timeline-container .pt-tip-time { color: var(--pt-ink-muted); font-size: 12px; margin-bottom: 2px; }
+.progress-timeline-container .pt-tip-learner { display: flex; align-items: center; gap: 6px; }
+.progress-timeline-container .pt-tip-note { color: var(--pt-ink-muted); font-size: 12px; }
+.progress-timeline-container .pt-gain { color: var(--pt-gain); font-weight: 600; margin-left: 4px; }
+
+.progress-timeline-container .pt-side {
+  flex: 0 0 248px; display: flex; flex-direction: column; gap: 8px; max-height: 486px;
+}
+.progress-timeline-container .pt-filter {
+  height: 34px; margin: 0; padding: 4px 8px; font-size: 13px; color: var(--pt-ink); background: var(--pt-surface);
+  border: 1px solid var(--pt-border); border-radius: 4px;
+}
+.progress-timeline-container .pt-tabs {
+  flex: 1 1 auto; overflow-y: auto; margin: 0; padding: 0; list-style: none;
+  border: 1px solid var(--pt-border); border-radius: 8px; background: var(--pt-surface);
+}
+.progress-timeline-container .pt-tabs li { position: relative; margin: 0; padding: 0; }
+.progress-timeline-container .pt-tabs li.pt-has-profile .pt-tab { padding-left: 32px; }
+/* a...:not(.btn) outranks the themes' link colors (Indigo dark: body.indigo-dark-theme a:not(.btn)). */
+.progress-timeline-container a.pt-profile:not(.btn) {
+  display: inline-flex; align-items: center; justify-content: center; color: var(--pt-ink-muted); border-radius: 4px;
+}
+.progress-timeline-container a.pt-profile:not(.btn):hover, .progress-timeline-container a.pt-profile:not(.btn):focus-visible { color: var(--pt-accent); }
+.progress-timeline-container .pt-profile:focus-visible { outline: 2px solid var(--pt-accent); outline-offset: 1px; }
+.progress-timeline-container .pt-tabs .pt-profile {
+  position: absolute; left: 8px; top: 50%; width: 20px; height: 20px; margin-top: -10px;
+}
+.progress-timeline-container .pt-table .pt-profile { margin-right: 6px; vertical-align: -2px; }
+.progress-timeline-container .pt-tabs li[hidden] { display: none; }
+.progress-timeline-container .pt-tab {
+  display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 10px;
+  border: 0; border-left: 4px solid transparent; border-bottom: 1px solid var(--pt-grid); border-radius: 0;
+  background: transparent; color: var(--pt-ink); font-size: 13px; font-weight: 400; line-height: 1.3;
+  text-align: left; text-transform: none; letter-spacing: normal; box-shadow: none; text-shadow: none; cursor: pointer;
+}
+.progress-timeline-container .pt-tab:hover, .progress-timeline-container .pt-tab:focus-visible { background: var(--pt-tab-hover); }
+.progress-timeline-container .pt-tab[aria-selected="true"] {
+  background: var(--pt-tab-active); border-left-color: var(--pt-accent); font-weight: 600;
+}
+.progress-timeline-container.pt-has-selection .pt-tab[aria-selected="false"] { color: var(--pt-ink-muted); }
+.progress-timeline-container .pt-tab-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-timeline-container .pt-dot {
+  flex: 0 0 auto; display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--pt-surface);
+}
+.progress-timeline-container .pt-tab-value { margin-left: auto; padding-left: 6px; font-variant-numeric: tabular-nums; color: var(--pt-ink-muted); white-space: nowrap; }
+.progress-timeline-container .pt-count { flex: 0 0 auto; margin: 0; font-size: 12px; font-style: italic; color: var(--pt-ink-muted); }
+
+/* Accessible table view. */
+.progress-timeline-container .pt-table-wrap { margin-top: 16px; }
+.progress-timeline-container .pt-table-wrap summary { cursor: pointer; color: var(--pt-accent); }
+.progress-timeline-container .pt-table-scroll { max-height: 420px; overflow: auto; margin-top: 8px; }
+.progress-timeline-container .pt-table { table-layout: auto; width: auto; border-collapse: collapse; font-size: 13px; }
+.progress-timeline-container .pt-table th, .progress-timeline-container .pt-table td {
+  padding: 4px 12px; border-bottom: 1px solid var(--pt-grid); text-align: left; color: var(--pt-ink); background: transparent;
+}
+.progress-timeline-container .pt-table .pt-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 900px) {
+  .progress-timeline-container .pt-main { flex-direction: column; }
+  .progress-timeline-container .pt-side { flex-basis: auto; max-height: 260px; }
+}

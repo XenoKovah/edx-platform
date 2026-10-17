@@ -1,0 +1,18 @@
+[package]
+name = "progress_timeline"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# No dependencies on purpose: nothing to audit but this crate and std.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

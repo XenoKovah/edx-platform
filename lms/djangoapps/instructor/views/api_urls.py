@@ -5,7 +5,7 @@ Instructor API endpoint urls.
 
 from django.urls import path, re_path
 
-from lms.djangoapps.instructor.views import api, completion_time, gradebook_api
+from lms.djangoapps.instructor.views import api, completion_time, gradebook_api, progress_timeline
 from openedx.core.constants import COURSE_ID_PATTERN
 
 # These endpoints are exposing existing views in a way that can be used by MFEs
@@ -31,6 +31,7 @@ urlpatterns = [
     re_path(r'^get_students_features(?P<csv>/csv)?$', api.GetStudentsFeatures.as_view(), name='get_students_features'),
     path('get_grading_config', api.GetGradingConfig.as_view(), name='get_grading_config'),
     path('completion_time', completion_time.CompletionTimeReport.as_view(), name='completion_time'),
+    path('progress_timeline', progress_timeline.ProgressTimelineReport.as_view(), name='progress_timeline'),
     path('get_students_who_may_enroll', api.GetStudentsWhoMayEnroll.as_view(), name='get_students_who_may_enroll'),
     path('get_anon_ids', api.GetAnonIds.as_view(), name='get_anon_ids'),
     path('get_student_enrollment_status', api.GetStudentEnrollmentStatus.as_view(),

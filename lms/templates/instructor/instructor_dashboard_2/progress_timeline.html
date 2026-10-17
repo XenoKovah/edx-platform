@@ -1,0 +1,72 @@
+<%page args="section_data" expression_filter="h"/>
+<%namespace name='static' file='../../static_content.html'/>
+<%!
+from django.utils.translation import gettext as _
+%>
+
+<div class="progress-timeline-container" data-endpoint="${ section_data['progress_timeline_url'] }" data-profile-url="${ section_data['profile_url'] }" data-wasm-url="${ static.url('js/instructor_dashboard/progress_timeline.wasm') }">
+  <p class="pt-intro">${_("Each line is one learner's course grade, as shown on their Progress page, over the chosen period. Learners in this course earn their grade by marking units complete, so a rising line is a learner making progress; a flat line is a learner who made none. Select a learner on the right to highlight their line.")}</p>
+
+  <form class="pt-controls" novalidate>
+    <div class="pt-period" role="group" aria-label="${_('Period')}">
+      <button type="button" class="pt-period-btn" data-period="day" aria-pressed="true">${_("Last day")}</button>
+      <button type="button" class="pt-period-btn" data-period="week" aria-pressed="false">${_("Last week")}</button>
+      <button type="button" class="pt-period-btn" data-period="month" aria-pressed="false">${_("Last month")}</button>
+      <button type="button" class="pt-period-btn" data-period="custom" aria-pressed="false">${_("Custom range")}</button>
+    </div>
+    <div class="pt-custom" hidden>
+      <label>${_("From")} <input type="date" class="pt-start" required></label>
+      <label>${_("To")} <input type="date" class="pt-end" required></label>
+    </div>
+    <label class="pt-field">${_("Interval")}
+      <select class="pt-step">
+        <option value="auto">${_("Automatic")}</option>
+        <option value="1h">${_("Hourly")}</option>
+        <option value="6h">${_("Every 6 hours")}</option>
+        <option value="1d">${_("Daily")}</option>
+        <option value="7d">${_("Weekly")}</option>
+      </select>
+    </label>
+    <label class="pt-field">${_("Learners")}
+      <input type="number" class="pt-limit" min="1" max="1000" step="1" value="20" inputmode="numeric" aria-describedby="pt-limit-help">
+      <span id="pt-limit-help" class="pt-help">${_("1 to 1000")}</span>
+    </label>
+    <label class="pt-field">${_("Show")}
+      <select class="pt-rank">
+        <option value="gain">${_("Most progress in period")}</option>
+        <option value="recent">${_("Most recently active")}</option>
+      </select>
+    </label>
+    <label class="pt-check"><input type="checkbox" class="pt-changed"> ${_("Remove users with no change within time period")}</label>
+    <button type="submit" class="btn-blue pt-update">${_("Update")}</button>
+  </form>
+
+  <div class="pt-error" role="alert" hidden></div>
+  <p class="pt-status" role="status" aria-live="polite"></p>
+
+  <div class="pt-main">
+    <div class="pt-chart">
+      <canvas class="pt-yaxis" aria-hidden="true"></canvas>
+      <div class="pt-scroll" tabindex="0" aria-label="${_('Chart; scroll sideways for earlier or later times')}">
+        <div class="pt-spacer">
+          <div class="pt-stack">
+            <canvas class="pt-base" aria-hidden="true"></canvas>
+            <canvas class="pt-lines" role="img" aria-label="${_('Line chart of learner grades over time')}"></canvas>
+            <canvas class="pt-overlay" aria-hidden="true"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="pt-tooltip" hidden></div>
+    </div>
+    <div class="pt-side">
+      <input type="search" class="pt-filter" placeholder="${_('Find a learner')}" aria-label="${_('Find a learner')}">
+      <ul class="pt-tabs" role="listbox" aria-label="${_('Learners (select one to highlight their line)')}"></ul>
+      <p class="pt-count" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <details class="pt-table-wrap">
+    <summary>${_("Show as a table")}</summary>
+    <div class="pt-table-scroll"><table class="pt-table"></table></div>
+  </details>
+</div>

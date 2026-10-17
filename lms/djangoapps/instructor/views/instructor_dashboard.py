@@ -218,6 +218,10 @@ def instructor_dashboard_2(request, course_id):  # lint-amnesty, pylint: disable
     if access['staff']:
         sections.append(_section_completion_time(course, access))
 
+    # Each learner's grade over a chosen period, as a line chart: course staff and instructors only
+    if access['staff']:
+        sections.append(_section_progress_timeline(course, access))
+
     openassessment_blocks = modulestore().get_items(
         course_key, qualifiers={'category': 'openassessment'}
     )
@@ -642,6 +646,21 @@ def _section_completion_time(course, access):
         'section_display_name': _('Completion Time'),
         'access': access,
         'completion_time_url': reverse('completion_time', kwargs={'course_id': str(course.id)}),
+    }
+
+
+def _section_progress_timeline(course, access):
+    """ Provide data for the corresponding dashboard section """
+    profile_url = settings.PROFILE_MICROFRONTEND_URL or ''
+    if profile_url and not profile_url.endswith('/'):
+        profile_url += '/'
+    return {
+        'section_key': 'progress_timeline',
+        'section_display_name': _('Progress Over Time'),
+        'access': access,
+        'progress_timeline_url': reverse('progress_timeline', kwargs={'course_id': str(course.id)}),
+        # A learner's public profile is this followed by their username.
+        'profile_url': profile_url,
     }
 
 
