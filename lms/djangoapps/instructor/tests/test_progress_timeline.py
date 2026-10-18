@@ -8,8 +8,10 @@ from zoneinfo import ZoneInfo
 import ddt
 
 from lms.djangoapps.instructor.progress_timeline import (
+    PIN,
     BadRequest,
     CourseGradeModel,
+    GradeHistory,
     build_window,
     parse_params,
     rank_and_shape
@@ -125,7 +127,7 @@ class BuildWindowTest(unittest.TestCase):
 
 class CourseGradeModelTest(unittest.TestCase):
     """
-    The replayed grade is the one on the Progress page.
+    Grades are worked out the way edx-platform works them out.
     """
     def model(self, grader, n_subsections=4, **block):
         subsections = [{'format': 'Homework', 'graded': True} for _ in range(n_subsections)]
@@ -148,7 +150,7 @@ class CourseGradeModelTest(unittest.TestCase):
         model = self.model(grader)
         assert model.percent([1, 1, 1, 1]) == 0.99
 
-    def test_rounding_matches_the_progress_page(self):
+    def test_rounding_matches_edx_platform(self):
         model = self.model([{'type': 'Homework', 'min_count': 0, 'drop_count': 0, 'weight': 1.0}], n_subsections=3)
         # 2/3 = 66.67% -> round_away_from_zero(66.67 + 0.05) = 67
         assert model.percent([1, 1, 0]) == 0.67
@@ -171,31 +173,112 @@ class CourseGradeModelTest(unittest.TestCase):
         assert model.sub_type == [0, None]  # a subsection worth nothing is not on the grade sheet
 
 
+HOMEWORK = [{'type': 'Homework', 'min_count': 0, 'drop_count': 0, 'weight': 1.0}]
+
+
+def homework_model(names, grader=None):
+    """
+    A version of a course with one graded homework subsection per name, each with one 1-point problem; the
+    subsection's key is its name and the problem's key is the name in capitals.
+    """
+    subsections = [{'key': name, 'format': 'Homework', 'graded': True} for name in names]
+    blocks = [
+        {'key': name.upper(), 'sub': i, 'weight': None, 'max': 1, 'graded': True} for i, name in enumerate(names)
+    ]
+    return CourseGradeModel(grader or HOMEWORK, subsections, blocks)
+
+
+class GradeHistoryTest(unittest.TestCase):
+    """
+    Grades are recorded against the course as it was at the time, and stay as they were recorded.
+    """
+    def setUp(self):
+        super().setUp()
+        # Published with homework a and b at 100; homework c was added at 1000.
+        self.history = GradeHistory(HOMEWORK, [(100.0, homework_model('ab')), (1000.0, homework_model('abc'))])
+
+    def grade_at(self, events, ts):
+        """
+        The course grade (whole percent) after the events up to the time.
+        """
+        records, version, pin = {}, self.history.version_at(ts), None
+        for when, v, u, earned, possible in events:
+            if when > ts:
+                break
+            version, pin = v, (earned if u == PIN else None)
+            if u >= 0:
+                records[u] = (earned, possible)
+        return round((self.history.percent(version, records) if pin is None else pin) * 100)
+
+    def test_a_learner_who_finished_before_the_course_grew_keeps_their_grade(self):
+        events = self.history.replay([('A', 1, 1, 200.0), ('B', 1, 1, 300.0)])
+
+        assert [(ts, v, u) for ts, v, u, _, _ in events] == [(200.0, 0, 0), (300.0, 0, 1)]
+        assert self.grade_at(events, 300.0) == 100
+        assert self.grade_at(events, 5000.0) == 100
+
+    def test_the_next_score_is_worked_out_against_the_course_of_its_time(self):
+        events = self.history.replay([('A', 1, 1, 200.0), ('B', 1, 1, 300.0), ('C', 0, 1, 1500.0)])
+
+        assert events[-1] == (1500.0, 1, 2, 0.0, 1.0)
+        assert self.grade_at(events, 1500.0) == 67
+
+    def test_a_learner_who_starts_after_the_course_grew(self):
+        events = self.history.replay([('A', 1, 1, 1200.0)])
+
+        assert self.grade_at(events, 1200.0) == 33
+
+    def test_scores_from_before_the_history_begins_go_to_the_first_version(self):
+        events = self.history.replay([('A', 1, 1, 50.0), ('B', 1, 1, 60.0)])
+
+        assert [v for _, v, _, _, _ in events] == [0, 0]
+        assert self.grade_at(events, 60.0) == 100
+
+    def test_stored_grades_replace_the_replayed_ones_from_when_they_were_stored(self):
+        # A regrade at 2000 stored homework a as half right, and the course grade against the course of that time.
+        stored = [(300.0, 'a', 1.0, 1.0), (300.0, 'b', 1.0, 1.0), (2000.0, 'a', 0.5, 1.0)]
+        events = self.history.replay([('A', 1, 1, 200.0), ('B', 1, 1, 300.0)], stored, 2000.0, 0.5)
+
+        assert self.grade_at(events, 1999.0) == 100
+        assert events[-1] == (2000.0, 1, 0, 0.5, 1.0)
+        assert self.grade_at(events, 2000.0) == 50
+
+    def test_a_stored_course_grade_the_subsections_do_not_come_to_is_kept(self):
+        events = self.history.replay([('A', 1, 1, 200.0), ('B', 1, 1, 300.0)], [], 300.0, 0.98)
+
+        assert events[-1] == (300.0, 0, PIN, 0.98, 0.0)
+        assert self.grade_at(events, 299.0) == 50
+        assert self.grade_at(events, 300.0) == 98
+
+    def test_the_stored_course_grade_is_the_last_word(self):
+        # A later save of a problem's state that changed nothing does not undo it.
+        events = self.history.replay([('A', 1, 1, 200.0), ('B', 1, 1, 300.0), ('B', 1, 1, 900.0)], [], 300.0, 0.98)
+
+        assert events[-1] == (900.0, 0, PIN, 0.98, 0.0)
+        assert self.grade_at(events, 900.0) == 98
+
+
 class RankAndShapeTest(unittest.TestCase):
     """
-    Learners are sent with their scores at the start of the period plus the changes in it, best first.
+    Learners are sent with their recorded grades at the start of the period plus the changes in it, best first.
     """
     def setUp(self):
         super().setUp()
         grader = [{'type': 'Homework', 'min_count': 2, 'drop_count': 0, 'weight': 1.0}]
-        subsections = [{'format': 'Homework', 'graded': True}, {'format': 'Homework', 'graded': True}]
-        blocks = [
-            {'sub': 0, 'weight': None, 'max': 1, 'graded': True},
-            {'sub': 1, 'weight': None, 'max': 1, 'graded': True},
-        ]
-        self.model = CourseGradeModel(grader, subsections, blocks)
+        self.history = GradeHistory(grader, [(0.0, homework_model('ab', grader))])
         self.window = (1000.0, 2000.0, [1000.0, 1500.0, 2000.0], 500)
         self.rows = {
-            1: [(0, 1, 1, 900.0), (1, 1, 1, 1600.0)],   # 50% -> 100%
-            2: [(0, 1, 1, 1200.0)],                     # 0% -> 50%, longer ago
-            3: [(0, 1, 1, 100.0)],                      # 50% all along
+            1: [('A', 1, 1, 900.0), ('B', 1, 1, 1600.0)],   # 50% -> 100%
+            2: [('A', 1, 1, 1200.0)],                       # 0% -> 50%, longer ago
+            3: [('A', 1, 1, 100.0)],                        # 50% all along
         }
+        self.stored = None
         self.last_active = {1: 1600.0, 2: 1200.0, 3: 100.0}
         self.usernames = {1: 'ann', 2: 'bob', 3: 'cy'}
 
     def shape(self, **params):
         return rank_and_shape(
-            self.model, self.rows, self.usernames, self.window, parse_params(params), self.last_active
+            self.history, self.rows, self.usernames, self.window, parse_params(params), self.last_active, self.stored
         )
 
     def test_payload(self):
@@ -204,11 +287,44 @@ class RankAndShapeTest(unittest.TestCase):
             ('ann', 50, 100), ('bob', 0, 50), ('cy', 50, 50)
         ]
         ann = payload['users'][0]
-        assert ann['base'] == [[0, 1.0]]
-        assert ann['events'] == [[600.0, 1, 1.0]]
+        assert ann['base'] == {'version': 0, 'pin': None, 'subs': [[0, 1.0, 1.0]]}
+        assert ann['events'] == [[600.0, 0, 1, 1.0, 1.0]]
         assert payload['window']['boundaries'] == [0.0, 500.0, 1000.0]
-        assert payload['model'] == {'types': [[2, 0, 1.0]], 'subs': [[0, 1.0], [0, 1.0]]}
+        assert payload['model'] == {'types': [[2, 0, 1.0]], 'subs': 2, 'versions': [[[0, 0, 1.0], [1, 0, 1.0]]]}
         assert payload['changed_in_window'] == 2
+
+    def test_versions_and_pins_are_sent(self):
+        self.history = GradeHistory(HOMEWORK, [(0.0, homework_model('ab')), (1100.0, homework_model('abc'))])
+        self.rows = {1: [('A', 1, 1, 900.0), ('B', 1, 1, 950.0), ('C', 1, 1, 1600.0)]}
+        # The grading policy changed after the last score, and edx-platform regraded the course: 98%.
+        self.stored = {1: ([], 1700.0, 0.98)}
+        self.last_active = {1: 1600.0}
+
+        payload = self.shape()
+
+        ann = payload['users'][0]
+        assert (ann['pct_start'], ann['pct_end']) == (100, 98)
+        assert ann['base'] == {'version': 0, 'pin': None, 'subs': [[0, 1.0, 1.0], [1, 1.0, 1.0]]}
+        assert ann['events'] == [[600.0, 1, 2, 1.0, 1.0], [700.0, 1, PIN, 98, 0]]
+        assert payload['model']['versions'] == [[[0, 0, 1.0], [1, 0, 1.0]], [[0, 0, 1.0], [1, 0, 1.0], [2, 0, 1.0]]]
+
+    def test_a_pin_before_the_period_is_part_of_the_start(self):
+        self.rows = {1: [('A', 1, 1, 900.0), ('B', 1, 1, 950.0)]}
+        self.stored = {1: ([], 950.0, 0.98)}
+        self.last_active = {1: 950.0}
+
+        ann = self.shape()['users'][0]
+
+        assert (ann['pct_start'], ann['pct_end'], ann['base']['pin'], ann['events']) == (98, 98, 98, [])
+
+    def test_only_the_versions_the_learners_use_are_sent(self):
+        self.history = GradeHistory(HOMEWORK, [(0.0, homework_model('x')), (50.0, homework_model('ab'))])
+
+        payload = self.shape()
+
+        assert payload['model']['subs'] == 2
+        assert payload['model']['versions'] == [[[0, 0, 1.0], [1, 0, 1.0]]]
+        assert all(u['base']['version'] == 0 for u in payload['users'])
 
     def test_most_recently_active_first(self):
         assert [u['username'] for u in self.shape(rank='recent')['users']] == ['ann', 'bob', 'cy']
@@ -222,6 +338,6 @@ class RankAndShapeTest(unittest.TestCase):
         assert [u['username'] for u in self.shape(limit='1')['users']] == ['ann']
 
     def test_a_score_at_the_first_point_is_part_of_the_start(self):
-        self.rows[2] = [(0, 1, 1, 1000.0)]
+        self.rows[2] = [('A', 1, 1, 1000.0)]
         bob = [u for u in self.shape()['users'] if u['username'] == 'bob'][0]
         assert (bob['pct_start'], bob['events']) == (50, [])

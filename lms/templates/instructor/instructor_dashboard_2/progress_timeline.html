@@ -5,7 +5,7 @@ from django.utils.translation import gettext as _
 %>
 
 <div class="progress-timeline-container" data-endpoint="${ section_data['progress_timeline_url'] }" data-profile-url="${ section_data['profile_url'] }" data-wasm-url="${ static.url('js/instructor_dashboard/progress_timeline.wasm') }">
-  <p class="pt-intro">${_("Each line is one learner's course grade, as shown on their Progress page, over the chosen period. Learners in this course earn their grade by marking units complete, so a rising line is a learner making progress; a flat line is a learner who made none. Select a learner on the right to highlight their line.")}</p>
+  <p class="pt-intro">${_("Each line is one learner's course grade as it was recorded at the time (the grade in the grade report), over the chosen period. Learners in this course earn their grade by marking units complete, so a rising line is a learner making progress; a flat line is a learner who made none. Select a learner on the right to highlight their line.")}</p>
 
   <form class="pt-controls" novalidate>
     <div class="pt-period" role="group" aria-label="${_('Period')}">

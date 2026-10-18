@@ -41,25 +41,16 @@ GRADING_POLICY = {
 
 class ProgressTimelineTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
     """
-    A course with two graded homework subsections of one problem each, and an ungraded lesson.
+    A course with two graded homework subsections of one problem each, and an ungraded lesson, built in 2020.
     """
     def setUp(self):
         super().setUp()
         self.course = CourseFactory.create(
             display_name='Progress course', start=dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc)
         )
-        chapter = BlockFactory.create(parent=self.course, category='chapter', display_name='Week 1')
-        self.problems = []
-        for number in (1, 2):
-            sequential = BlockFactory.create(
-                parent=chapter, category='sequential', display_name=f'Homework {number}',
-                metadata={'graded': True, 'format': 'Homework'},
-            )
-            vertical = BlockFactory.create(parent=sequential, category='vertical', display_name=f'Unit {number}')
-            self.problems.append(BlockFactory.create(
-                parent=vertical, category='problem', display_name=f'Question {number}', data=PROBLEM_XML
-            ))
-        lesson = BlockFactory.create(parent=chapter, category='sequential', display_name='Lesson')
+        self.chapter = BlockFactory.create(parent=self.course, category='chapter', display_name='Week 1')
+        self.problems = [self.add_homework(number) for number in (1, 2)]
+        lesson = BlockFactory.create(parent=self.chapter, category='sequential', display_name='Lesson')
         lesson_unit = BlockFactory.create(parent=lesson, category='vertical', display_name='Lesson unit')
         self.practice = BlockFactory.create(
             parent=lesson_unit, category='problem', display_name='Practice', data=PROBLEM_XML
@@ -67,8 +58,29 @@ class ProgressTimelineTestCase(ModuleStoreTestCase, LoginEnrollmentTestCase):
         self.course = self.store.get_course(self.course.id)
         self.course.set_grading_policy(GRADING_POLICY)
         self.store.update_item(self.course, 0)
+        self.date_published_versions(dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc))
         self.url = reverse('progress_timeline', kwargs={'course_id': str(self.course.id)})
         self.dashboard_url = reverse('instructor_dashboard', kwargs={'course_id': str(self.course.id)})
+
+    def add_homework(self, number):
+        """
+        Add a graded homework subsection with one problem to the course, and return the problem.
+        """
+        sequential = BlockFactory.create(
+            parent=self.chapter, category='sequential', display_name=f'Homework {number}',
+            metadata={'graded': True, 'format': 'Homework'},
+        )
+        vertical = BlockFactory.create(parent=sequential, category='vertical', display_name=f'Unit {number}')
+        return BlockFactory.create(
+            parent=vertical, category='problem', display_name=f'Question {number}', data=PROBLEM_XML
+        )
+
+    def date_published_versions(self, when):
+        """
+        Date every version of the course published so far at the given time, as if it had been built then.
+        """
+        store = self.store._get_modulestore_for_courselike(self.course.id)  # pylint: disable=protected-access
+        store.db_connection.structures.update_many({}, {'$set': {'edited_on': when}})
 
     def score(self, user, problem, ago, grade=1):
         """
@@ -126,14 +138,14 @@ class ProgressTimelineReportTest(ProgressTimelineTestCase):
         assert payload['changed_in_window'] == 2
         assert payload['window']['step'] == 3600
         assert len(payload['window']['boundaries']) in (25, 26)
-        assert payload['model'] == {'types': [[2, 0, 1.0]], 'subs': [[0, 1.0], [0, 1.0]]}
+        assert payload['model'] == {'types': [[2, 0, 1.0]], 'subs': 2, 'versions': [[[0, 0, 1.0], [1, 0, 1.0]]]}
         assert payload['course']['id'] == str(self.course.id)
         assert payload['course']['data_start'] == self.course.start.timestamp()
         ann = payload['users'][0]
-        assert ann['base'] == [[0, 1.0]]
-        assert [(sub, points) for _, sub, points in ann['events']] == [(1, 1.0)]
+        assert ann['base'] == {'version': 0, 'pin': None, 'subs': [[0, 1.0, 1.0]]}
+        assert [(sub, earned, possible) for _, _, sub, earned, possible in ann['events']] == [(1, 1.0, 1.0)]
         # The ungraded practice problem is not sent.
-        assert [(sub, points) for _, sub, points in payload['users'][1]['events']] == [(0, 1.0)]
+        assert [(sub, earned) for _, _, sub, earned, _ in payload['users'][1]['events']] == [(0, 1.0)]
 
     def test_options(self):
         assert [u['username'] for u in self.get(changed='1')['users']] == ['ann', 'bob']
@@ -159,6 +171,20 @@ class ProgressTimelineReportTest(ProgressTimelineTestCase):
             response = self.client.get(self.url, params)
             assert response.status_code == 400, params
             assert response.json()['error'], params
+
+    def test_grades_stay_as_they_were_recorded_when_the_course_grows(self):
+        # A third homework is published now: ann finished the first two earlier, and stays at 100% (her Progress page,
+        # which recalculates over today's course, would show 67%); dan, who starts now, has one of three.
+        third = self.add_homework(3)
+        dan = UserFactory.create(username='dan')
+        self.score(dan, third, dt.timedelta(0))
+
+        payload = self.get(period='day')
+
+        assert [(u['username'], u['pct_start'], u['pct_end']) for u in payload['users']] == [
+            ('ann', 50, 100), ('bob', 0, 50), ('dan', 0, 33), ('cy', 50, 50)
+        ]
+        assert len(payload['model']['versions']) == 2
 
     def test_course_without_scores(self):
         StudentModule.objects.all().delete()

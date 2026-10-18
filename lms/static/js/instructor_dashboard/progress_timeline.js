@@ -1,12 +1,12 @@
 /* globals gettext, interpolate, ngettext */
 
 /*
- * The "Progress Over Time" tab: every selected learner's course grade (the number on their Progress page) over a
- * chosen period, one line per learner.
+ * The "Progress Over Time" tab: every selected learner's course grade (as recorded by edx-platform, the grade in the
+ * grade report) over a chosen period, one line per learner.
  *
- * The server sends, for each learner, their per-subsection scores at the start of the window plus every score change
- * inside it; ProgressTimelineEngine (Rust/WebAssembly, or the JavaScript port) turns that into a whole-percent grade at
- * every boundary of the window.  Only the visible part of the chart is ever drawn: the canvases are the size of the
+ * The server sends, for each learner, their recorded subsection grades at the start of the window plus every change
+ * inside it, each tagged with the version of the course it was recorded against; ProgressTimelineEngine
+ * (Rust/WebAssembly) turns that into a whole-percent grade at every boundary of the window.  Only the visible part of the chart is ever drawn: the canvases are the size of the
  * viewport and stay put while a spacer element gives the scroll area its width, so a 1000-point window costs the same
  * to draw as a 30-point one.
  *
@@ -96,7 +96,6 @@
     }
 
     function ProgressTimeline(container) {
-        var self = this;
         this.root = container;
         this.endpoint = container.getAttribute('data-endpoint');
         // Base of the public profile page, e.g. "https://apps.example.com/profile/u/"; links are left out without one.
@@ -109,7 +108,6 @@
         this.selected = -1;
         this.previewed = -1;
         this.hover = null;
-        this.wasm = null;
         this.requestSeq = 0;
         this.canvases = {
             base: this.q('.pt-base'), lines: this.q('.pt-lines'), overlay: this.q('.pt-overlay'), yaxis: this.q('.pt-yaxis')
@@ -121,10 +119,9 @@
         this.tabs = this.q('.pt-tabs');
         // progress_timeline_engine.js; looked up here because the LMS bundles the files in alphabetical order.
         this.engine = root.ProgressTimelineEngine;
-        // Without WebAssembly (old browser, or a Content-Security-Policy that blocks it) the JavaScript port is used.
-        this.wasmReady = this.engine.loadWasm(container.getAttribute('data-wasm-url')).then(function(engine) {
-            self.wasm = engine;
-        });
+        // A browser without WebAssembly gets the reason in the chart's error line on every load.
+        this.wasmReady = this.engine.loadWasm(container.getAttribute('data-wasm-url'));
+        this.wasmReady.catch(function() {});
         this.bind();
         this.initCustomDates();
     }
@@ -255,7 +252,7 @@
             if (seq !== self.requestSeq) {
                 return;
             }
-            self.setData(results[0]);
+            self.setData(results[0], results[1]);
         }).catch(function(err) {
             if (seq === self.requestSeq) {
                 self.showError(interpolate(gettext('Could not load the chart: %(error)s'), {error: err.message}, true));
@@ -268,10 +265,12 @@
         });
     };
 
-    ProgressTimeline.prototype.setData = function(data) {
+    ProgressTimeline.prototype.setData = function(data, wasm) {
         var selectedId = this.selected >= 0 && this.data ? this.data.users[this.selected].id : null, i;
+        // Computed before anything changes, so a refusal leaves the previous chart in place.
+        var series = wasm.compute(this.engine.pack(data));
         this.data = data;
-        this.packed = this.engine.pack(data);
+        this.series = series;
         this.selected = -1;
         this.previewed = -1;
         this.hover = null;
@@ -280,7 +279,6 @@
                 this.selected = i;
             }
         }
-        this.compute();
         this.dateRange();
         this.renderTabs();
         this.renderTable();
@@ -289,19 +287,6 @@
         this.redraw();
         this.scroller.scrollLeft = this.scroller.scrollWidth;
         this.redraw();
-    };
-
-    ProgressTimeline.prototype.compute = function() {
-        if (this.wasm) {
-            try {
-                this.series = this.wasm.compute(this.packed);
-                return;
-            } catch (err) {
-                if (root.console) { root.console.warn('Progress Over Time: WebAssembly failed, using JavaScript', err); }
-                this.wasm = null;
-            }
-        }
-        this.series = this.engine.computeJS(this.packed);
     };
 
     ProgressTimeline.prototype.dateRange = function() {
