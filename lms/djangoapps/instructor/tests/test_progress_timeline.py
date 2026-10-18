@@ -326,10 +326,25 @@ class RankAndShapeTest(unittest.TestCase):
         assert payload['model']['versions'] == [[[0, 0, 1.0], [1, 0, 1.0]]]
         assert all(u['base']['version'] == 0 for u in payload['users'])
 
-    def test_most_recently_active_first(self):
-        assert [u['username'] for u in self.shape(rank='recent')['users']] == ['ann', 'bob', 'cy']
+    def test_highest_total_or_largest_increase_first(self):
+        self.history = GradeHistory(HOMEWORK, [(0.0, homework_model('abcdefghij'))])
+        self.rows = {
+            1: [(key, 1, 1, 100.0) for key in 'ABCDEFG'] + [('H', 1, 1, 1600.0)],   # 70% -> 80%
+            2: [(key, 1, 1, 1200.0) for key in 'ABCDEF'],                        # 0% -> 60%
+            3: [(key, 1, 1, 100.0) for key in 'ABCDEFGHI'],                      # 90% all along
+            4: [(key, 1, 1, 1300.0) for key in 'ABCDEF'],                        # 0% -> 60%, more recently
+        }
+        self.last_active = {1: 1600.0, 2: 1200.0, 3: 100.0, 4: 1300.0}
+        self.usernames[4] = 'dee'
+
+        assert [u['username'] for u in self.shape()['users']] == ['cy', 'ann', 'dee', 'bob']
+        assert [u['username'] for u in self.shape(rank='gain')['users']] == ['dee', 'bob', 'ann', 'cy']
+
+    def test_ties_on_the_increase_go_to_the_higher_total(self):
+        # ann and bob both rose 50 points; ann ends higher, though bob was active more recently.
         self.last_active[2] = 1900.0
-        assert [u['username'] for u in self.shape(rank='recent')['users']] == ['bob', 'ann', 'cy']
+
+        assert [u['username'] for u in self.shape(rank='gain')['users']] == ['ann', 'bob', 'cy']
 
     def test_learners_without_change_can_be_left_out(self):
         assert [u['username'] for u in self.shape(changed='1')['users']] == ['ann', 'bob']

@@ -31,10 +31,10 @@ from django.utils.translation import gettext as _
       <input type="number" class="pt-limit" min="1" max="1000" step="1" value="20" inputmode="numeric" aria-describedby="pt-limit-help">
       <span id="pt-limit-help" class="pt-help">${_("1 to 1000")}</span>
     </label>
-    <label class="pt-field">${_("Show")}
+    <label class="pt-field">${_("Sort by")}
       <select class="pt-rank">
-        <option value="gain">${_("Most progress in period")}</option>
-        <option value="recent">${_("Most recently active")}</option>
+        <option value="total">${_("Highest total completion")}</option>
+        <option value="gain">${_("Largest increase in period")}</option>
       </select>
     </label>
     <label class="pt-check"><input type="checkbox" class="pt-changed" checked>${_("Remove users with no change within time period")}</label>
@@ -65,8 +65,4 @@ from django.utils.translation import gettext as _
     </div>
   </div>
 
-  <details class="pt-table-wrap">
-    <summary>${_("Show as a table")}</summary>
-    <div class="pt-table-scroll"><table class="pt-table"></table></div>
-  </details>
 </div>

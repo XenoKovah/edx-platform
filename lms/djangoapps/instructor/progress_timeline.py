@@ -41,7 +41,7 @@ MAX_POINTS = 1000
 TARGET_POINTS = 30
 
 PERIODS = ('day', 'week', 'month', 'custom')
-RANKS = ('gain', 'recent')
+RANKS = ('total', 'gain')
 HOUR = 3600
 DAY = 86400
 # Interval name -> seconds; 'auto' picks one from AUTO_LADDER.
@@ -343,7 +343,7 @@ def parse_params(params):
     period = _one(params, 'period', 'day')
     if period not in PERIODS:
         raise BadRequest('period must be one of ' + ', '.join(PERIODS))
-    rank = _one(params, 'rank', 'gain')
+    rank = _one(params, 'rank', 'total')
     if rank not in RANKS:
         raise BadRequest('rank must be one of ' + ', '.join(RANKS))
     step = _one(params, 'step', 'auto')
@@ -496,10 +496,14 @@ def rank_and_shape(history, rows_by_user, usernames, window, opts, last_active, 
     if opts['changed_only']:
         # "No change" means the same grade at the first and the last point, even if it moved in between.
         shaped = [u for u in shaped if u['pct_end'] != u['pct_start']]
-    if opts['rank'] == 'gain':
-        shaped.sort(key=lambda u: (-(u['pct_end'] - u['pct_start']), -(u['last_active'] or 0), u['username']))
-    else:
-        shaped.sort(key=lambda u: (-(u['last_active'] or 0), u['username']))
+
+    # 'total': the highest grade at the last point first; 'gain': the biggest rise over the period first.  Each breaks
+    # ties with the other, then the most recently active.
+    def order(u):
+        total, gain, recent = -u['pct_end'], u['pct_start'] - u['pct_end'], -(u['last_active'] or 0)
+        return (gain, total, recent, u['username']) if opts['rank'] == 'gain' else (total, gain, recent, u['username'])
+
+    shaped.sort(key=order)
     shaped = shaped[:opts['limit']]
 
     # Only the versions and subsections these learners' grades use go to the browser, renumbered from 0.

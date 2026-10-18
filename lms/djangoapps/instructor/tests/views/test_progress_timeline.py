@@ -150,7 +150,7 @@ class ProgressTimelineReportTest(ProgressTimelineTestCase):
     def test_options(self):
         assert [u['username'] for u in self.get(changed='1')['users']] == ['ann', 'bob']
         assert [u['username'] for u in self.get(limit='1')['users']] == ['ann']
-        assert [u['username'] for u in self.get(rank='recent')['users']] == ['ann', 'bob', 'cy']
+        assert [u['username'] for u in self.get(rank='gain')['users']] == ['ann', 'bob', 'cy']
         assert [u['username'] for u in self.get(period='week')['users']] == ['ann', 'bob', 'cy']
 
     def test_custom_range(self):
@@ -182,7 +182,7 @@ class ProgressTimelineReportTest(ProgressTimelineTestCase):
         payload = self.get(period='day')
 
         assert [(u['username'], u['pct_start'], u['pct_end']) for u in payload['users']] == [
-            ('ann', 50, 100), ('bob', 0, 50), ('dan', 0, 33), ('cy', 50, 50)
+            ('ann', 50, 100), ('bob', 0, 50), ('cy', 50, 50), ('dan', 0, 33)
         ]
         assert len(payload['model']['versions']) == 2
 
@@ -288,3 +288,7 @@ class ProgressTimelineTabTest(ProgressTimelineTestCase):
         assert container.find('.pt-period-btn[aria-pressed="true"]').attr('data-period') == 'month'
         assert container.find('.pt-changed').attr('checked') is not None
         assert container.find('canvas.pt-lines')
+        assert [(o.attrib['value'], o.text) for o in container.find('.pt-rank option')] == [
+            ('total', 'Highest total completion'), ('gain', 'Largest increase in period')
+        ]
+        assert not container.find('.pt-table')

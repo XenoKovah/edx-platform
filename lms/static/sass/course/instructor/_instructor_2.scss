@@ -3496,7 +3496,6 @@ body.indigo-dark-theme .progress-timeline-container {
 .progress-timeline-container .pt-tabs .pt-profile {
   position: absolute; left: 8px; top: 50%; width: 20px; height: 20px; margin-top: -10px;
 }
-.progress-timeline-container .pt-table .pt-profile { margin-right: 6px; vertical-align: -2px; }
 .progress-timeline-container .pt-tabs li[hidden] { display: none; }
 .progress-timeline-container .pt-tab {
   display: flex; align-items: center; gap: 8px; width: 100%; margin: 0; padding: 7px 10px;
@@ -3516,16 +3515,6 @@ body.indigo-dark-theme .progress-timeline-container {
 }
 .progress-timeline-container .pt-tab-value { margin-left: auto; padding-left: 6px; font-variant-numeric: tabular-nums; color: var(--pt-ink-muted); white-space: nowrap; }
 .progress-timeline-container .pt-count { flex: 0 0 auto; margin: 0; font-size: 12px; font-style: italic; color: var(--pt-ink-muted); }
-
-/* Accessible table view. */
-.progress-timeline-container .pt-table-wrap { margin-top: 16px; }
-.progress-timeline-container .pt-table-wrap summary { cursor: pointer; color: var(--pt-accent); }
-.progress-timeline-container .pt-table-scroll { max-height: 420px; overflow: auto; margin-top: 8px; }
-.progress-timeline-container .pt-table { table-layout: auto; width: auto; border-collapse: collapse; font-size: 13px; }
-.progress-timeline-container .pt-table th, .progress-timeline-container .pt-table td {
-  padding: 4px 12px; border-bottom: 1px solid var(--pt-grid); text-align: left; color: var(--pt-ink); background: transparent;
-}
-.progress-timeline-container .pt-table .pt-num { text-align: right; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
   .progress-timeline-container .pt-main { flex-direction: column; }

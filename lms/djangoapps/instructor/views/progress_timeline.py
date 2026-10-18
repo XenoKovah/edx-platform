@@ -438,7 +438,7 @@ class ProgressTimelineReport(APIView):
       period  day | week | month | custom (custom also needs start and end, YYYY-MM-DD)
       step    auto | 1h | 6h | 1d | 7d
       limit   how many learners, 1 to 1000 (default 20)
-      rank    gain (most progress in the period first) | recent (most recently active first)
+      rank    total (highest grade at the end first, the default) | gain (biggest rise over the period first)
       changed 1 to leave out learners whose grade is the same at the start and the end
       tz      the browser's IANA time zone, for where days and hours begin
     """

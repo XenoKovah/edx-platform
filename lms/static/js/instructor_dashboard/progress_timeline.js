@@ -281,7 +281,6 @@
         }
         this.dateRange();
         this.renderTabs();
-        this.renderTable();
         this.renderStatus();
         // Start scrolled to the newest point.
         this.redraw();
@@ -325,7 +324,7 @@
     ProgressTimeline.prototype.renderStatus = function() {
         var d = this.data, tz = d.window.tz, shown = d.users.length,
             rankText = this.q('.pt-rank').value === 'gain' ?
-                gettext('ranked by progress gained in the period') : gettext('ranked by most recent graded activity'),
+                gettext('sorted by largest increase in the period') : gettext('sorted by highest total completion'),
             text = interpolate(ngettext(
                 'Showing %(shown)s learner, %(rank)s. %(active)s learners had graded activity in this period.',
                 'Showing %(shown)s learners, %(rank)s. %(active)s learners had graded activity in this period.',
@@ -441,37 +440,6 @@
             this.previewed = index;
             this.redrawSoon();
         }
-    };
-
-    ProgressTimeline.prototype.renderTable = function() {
-        var self = this, table = this.q('.pt-table'), K = this.data.window.boundaries.length,
-            head = el('thead'), body = el('tbody'), tr = el('tr'),
-            fmt = this.formatter({dateStyle: 'medium', timeStyle: 'short'});
-        table.textContent = '';
-        [gettext('Learner'), gettext('Start of period'), gettext('End of period'), gettext('Change'),
-            gettext('Last graded activity')].forEach(function(label) {
-            var th = el('th', null, label);
-            th.scope = 'col';
-            tr.appendChild(th);
-        });
-        head.appendChild(tr);
-        this.data.users.forEach(function(user, i) {
-            var row = el('tr'), first = self.valueAt(i, 0), last = self.valueAt(i, K - 1), th = el('th'),
-                link = self.profileLink(user.username);
-            if (link) {
-                th.appendChild(link);
-            }
-            th.appendChild(document.createTextNode(user.username));
-            th.scope = 'row';
-            row.appendChild(th);
-            row.appendChild(el('td', 'pt-num', first + '%'));
-            row.appendChild(el('td', 'pt-num', last + '%'));
-            row.appendChild(el('td', 'pt-num', (last - first > 0 ? '+' : '') + (last - first)));
-            row.appendChild(el('td', null, user.last_active ? fmt.format(new Date(user.last_active * 1000)) : '—'));
-            body.appendChild(row);
-        });
-        table.appendChild(head);
-        table.appendChild(body);
     };
 
     ProgressTimeline.prototype.formatter = function(options) {
