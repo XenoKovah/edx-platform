@@ -3,6 +3,7 @@ Authn API urls
 """
 from django.urls import path
 from openedx.core.djangoapps.user_authn.api.views import (
+    AccountActivationNoticeView,
     MFEContextView,
     SendAccountActivationEmail,
 )
@@ -12,4 +13,5 @@ urlpatterns = [
     path('send_account_activation_email', SendAccountActivationEmail.as_view(),
          name='send_account_activation_email'
          ),
+    path('account_activation_notice', AccountActivationNoticeView.as_view(), name='account_activation_notice'),
 ]

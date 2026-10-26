@@ -6,14 +6,16 @@ from django.conf import settings
 
 from rest_framework import status
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import SessionAuthenticationAllowInactiveUser
 
 from common.djangoapps.student.helpers import get_next_url_for_login_page
 from common.djangoapps.student.views import compose_and_send_activation_email
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
+from openedx.core.djangoapps.user_authn.activation_notice import get_account_activation_notice
 from openedx.core.djangoapps.user_authn.api.helper import RegistrationFieldsContext
 from openedx.core.djangoapps.user_authn.serializers import MFEContextSerializer
 from openedx.core.djangoapps.user_authn.views.utils import get_mfe_context
@@ -115,12 +117,22 @@ class MFEContextView(APIView):
         )
 
 
+class SendAccountActivationEmailThrottle(UserRateThrottle):
+    """
+    OST2: the account-activation banner puts this API one click away on every page, and each activation email
+    counts against the site's daily email quota.
+    """
+    scope = 'send_account_activation_email'
+    rate = '10/day'
+
+
 class SendAccountActivationEmail(APIView):
     """
     API to to send the account activation email using account activation cta.
     """
     authentication_classes = (SessionAuthenticationAllowInactiveUser,)
     permission_classes = (IsAuthenticated,)
+    throttle_classes = [SendAccountActivationEmailThrottle]
 
     def post(self, request, **kwargs):  # lint-amnesty, pylint: disable=unused-argument
         """
@@ -139,3 +151,18 @@ class SendAccountActivationEmail(APIView):
             return Response(
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class AccountActivationNoticeView(APIView):
+    """
+    OST2: what to tell the signed-in user about activating their account; see
+    openedx.core.djangoapps.user_authn.activation_notice.
+
+    GET returns ``{"notice": null}`` for an active user, else ``{"notice": {"variant", "email", "pending_email",
+    "bounced", "delete_after"}}``.
+    """
+    authentication_classes = (JwtAuthentication, SessionAuthenticationAllowInactiveUser,)
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        return Response({'notice': get_account_activation_notice(request.user)})

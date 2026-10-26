@@ -55,6 +55,7 @@ from openedx.core.djangoapps.programs.models import ProgramsApiConfig  # lint-am
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
 from openedx.core.djangoapps.theming import helpers as theming_helpers
 from openedx.core.djangoapps.user_api.preferences import api as preferences_api
+from openedx.core.djangoapps.user_authn.activation_notice import clear_activation_bounce
 from openedx.core.djangoapps.user_authn.tasks import send_activation_email
 from openedx.core.djangoapps.user_authn.toggles import (
     should_redirect_to_authn_microfrontend,
@@ -872,6 +873,10 @@ def confirm_email_change(request, key):
     """
     User requested a new e-mail. This is called when the activation
     link is clicked. We confirm with the old e-mail, and update
+
+    OST2: for an account that was never activated, following this link proves the user owns the new address,
+    which is all that activation proves, so it activates the account too. The old address gets no email then:
+    it was never shown to be the user's, and its activation email may have bounced.
     """
     with transaction.atomic():
         try:
@@ -882,9 +887,12 @@ def confirm_email_change(request, key):
             return response
 
         user = pec.user
+        registration = Registration.objects.filter(user=user).first()
+        never_activated = not user.is_active and registration is not None and registration.activation_timestamp is None
         address_context = {
             'old_email': user.email,
-            'new_email': pec.new_email
+            'new_email': pec.new_email,
+            'account_activated': never_activated,
         }
 
         if len(User.objects.filter(email=pec.new_email)) != 0:
@@ -925,17 +933,19 @@ def confirm_email_change(request, key):
         u_prof.set_meta(meta)
         u_prof.save()
         # Send it to the old email...
-        try:
-            ace.send(msg)
-        except Exception:  # pylint: disable=broad-except
-            log.warning('Unable to send confirmation email to old address', exc_info=True)
-            response = render_to_response("email_change_failed.html", {'email': user.email})
-            transaction.set_rollback(True)
-            return response
+        if not never_activated:
+            try:
+                ace.send(msg)
+            except Exception:  # pylint: disable=broad-except
+                log.warning('Unable to send confirmation email to old address', exc_info=True)
+                response = render_to_response("email_change_failed.html", {'email': user.email})
+                transaction.set_rollback(True)
+                return response
 
         user.email = pec.new_email
         user.save()
         pec.delete()
+        clear_activation_bounce(user)
         # And send it to the new email...
         msg.recipient = Recipient(user.id, pec.new_email)
         try:
@@ -945,6 +955,17 @@ def confirm_email_change(request, key):
             response = render_to_response("email_change_failed.html", {'email': pec.new_email})
             transaction.set_rollback(True)
             return response
+
+        if never_activated:
+            registration.user = user
+            registration.activate()
+            tracker.emit(
+                USER_ACCOUNT_ACTIVATED,
+                {
+                    "user_id": user.id,
+                    "activation_timestamp": registration.activation_timestamp
+                }
+            )
 
         response = render_to_response("email_change_successful.html", address_context)
 

@@ -1,8 +1,10 @@
 # lint-amnesty, pylint: disable=missing-module-docstring
 
+import datetime
 import json
 from string import capwords
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import ddt
 import pytest
@@ -32,6 +34,8 @@ from common.djangoapps.third_party_auth.views import inactive_user_view
 from common.djangoapps.util.testing import EventTestMixin
 from openedx.core.djangoapps.ace_common.tests.mixins import EmailTemplateTagMixin
 from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
+from openedx.core.djangoapps.user_api.models import UserPreference
+from openedx.core.djangoapps.user_authn.activation_notice import ACTIVATION_BOUNCE_PREF_KEY
 from openedx.core.djangolib.testing.utils import CacheIsolationMixin, CacheIsolationTestCase, skip_unless_lms
 from xmodule.modulestore.django import modulestore  # lint-amnesty, pylint: disable=wrong-import-order
 from xmodule.modulestore.tests.django_utils import ModuleStoreTestCase  # lint-amnesty, pylint: disable=wrong-import-order
@@ -523,7 +527,8 @@ class EmailChangeConfirmationTests(EmailTestMixin, EmailTemplateTagMixin, CacheI
         """
         self.check_confirm_email_change('email_change_successful.html', {
             'old_email': self.user.email,
-            'new_email': self.pending_change_request.new_email
+            'new_email': self.pending_change_request.new_email,
+            'account_activated': False,
         })
 
         # Must have two items in outbox: one for old email, another for new email
@@ -605,6 +610,55 @@ class EmailChangeConfirmationTests(EmailTestMixin, EmailTemplateTagMixin, CacheI
         assert self.user.email == meta['old_emails'][0][0]
         assert self.pending_change_request.new_email == User.objects.get(username=self.user.username).email
         assert PendingEmailChange.objects.count() == 0
+
+    def make_unactivated(self, activation_timestamp=None):
+        """
+        Makes self.user an account that is not active; it was activated at `activation_timestamp`, if given.
+        """
+        self.user.is_active = False
+        self.user.save()
+        return Registration.objects.create(
+            user=self.user, activation_key=uuid4().hex, activation_timestamp=activation_timestamp
+        )
+
+    @skip_unless_lms
+    @patch('common.djangoapps.student.signals.signals.USER_EMAIL_CHANGED.send')
+    def test_confirming_activates_a_never_activated_account(self, _mock_email_change_signal):
+        """
+        OST2: following the link proves the user owns the new address, so it activates the account, and the old
+        (never verified, perhaps bounced) address gets no email.
+        """
+        registration = self.make_unactivated()
+        UserPreference.objects.create(user=self.user, key=ACTIVATION_BOUNCE_PREF_KEY, value=json.dumps({
+            'address': self.user.email, 'bounced_at': '2026-10-26T07:43:00+00:00', 'delete_after': None,
+        }))
+        new_email = self.pending_change_request.new_email
+        self.check_confirm_email_change('email_change_successful.html', {
+            'old_email': self.user.email,
+            'new_email': new_email,
+            'account_activated': True,
+        })
+        user = User.objects.get(id=self.user.id)
+        assert user.is_active
+        assert user.email == new_email
+        assert Registration.objects.get(id=registration.id).activation_timestamp is not None
+        assert not UserPreference.objects.filter(user=self.user, key=ACTIVATION_BOUNCE_PREF_KEY).exists()
+        assert [message.to for message in mail.outbox] == [[new_email]]
+
+    @skip_unless_lms
+    @patch('common.djangoapps.student.signals.signals.USER_EMAIL_CHANGED.send')
+    def test_confirming_leaves_a_deactivated_account_inactive(self, _mock_email_change_signal):
+        """
+        OST2: an account that was activated and later deactivated stays deactivated.
+        """
+        self.make_unactivated(activation_timestamp=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc))
+        self.check_confirm_email_change('email_change_successful.html', {
+            'old_email': self.user.email,
+            'new_email': self.pending_change_request.new_email,
+            'account_activated': False,
+        })
+        assert not User.objects.get(id=self.user.id).is_active
+        assert len(mail.outbox) == 2
 
     @patch('common.djangoapps.student.views.PendingEmailChange.objects.get', Mock(side_effect=TestException))
     def test_always_rollback(self):

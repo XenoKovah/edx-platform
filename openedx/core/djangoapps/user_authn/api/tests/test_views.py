@@ -2,8 +2,10 @@
 Logistration API View Tests
 """
 import ddt
+import json
 import socket
 from django.conf import settings
+from django.core.cache import cache
 from django.test.utils import override_settings
 from django.urls import reverse
 from rest_framework import status
@@ -17,6 +19,7 @@ from common.djangoapps.third_party_auth import pipeline
 from common.djangoapps.third_party_auth.tests.testutil import ThirdPartyAuthTestMixin, simulate_running_pipeline
 from openedx.core.djangoapps.geoinfo.api import country_code_from_ip
 from openedx.core.djangoapps.site_configuration.tests.test_util import with_site_configuration
+from openedx.core.djangoapps.user_api.models import UserPreference
 from openedx.core.djangoapps.user_api.tests.test_views import UserAPITestCase
 from openedx.core.djangolib.testing.utils import skip_unless_lms
 
@@ -437,3 +440,63 @@ class SendAccountActivationEmail(UserAPITestCase):
         self.user.save()
         self.client.post(self.path)
         assert email.called is True, 'method should have been called'
+
+    @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+    def test_resending_is_limited_to_ten_a_day(self):
+        """
+        OST2: the banner's resend button can't be used to burn the site's daily email quota.
+        """
+        cache.clear()
+        self.user.is_active = False
+        self.user.save()
+        with patch('openedx.core.djangoapps.user_authn.api.views.compose_and_send_activation_email') as send:
+            for _ in range(10):
+                assert self.client.post(self.path).status_code == status.HTTP_200_OK
+            assert self.client.post(self.path).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert send.call_count == 10
+
+
+@skip_unless_lms
+class AccountActivationNoticeViewTest(UserAPITestCase):
+    """
+    Tests for the OST2 account activation notice API.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.user = UserFactory(password=self.TEST_PASSWORD, email='learner@example.com')
+        assert self.client.login(username=self.user.username, password=self.TEST_PASSWORD)
+        self.path = reverse('account_activation_notice')
+
+    def test_active_user(self):
+        response = self.client.get(self.path)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {'notice': None}
+
+    def test_inactive_user(self):
+        self.user.is_active = False
+        self.user.save()
+        response = self.client.get(self.path)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {'notice': {
+            'variant': 'unactivated',
+            'email': 'learner@example.com',
+            'pending_email': None,
+            'bounced': False,
+            'delete_after': None,
+        }}
+
+    def test_bounced_deletion_date(self):
+        self.user.is_active = False
+        self.user.save()
+        UserPreference.objects.create(user=self.user, key='ost2_activation_bounce', value=json.dumps({
+            'address': 'learner@example.com', 'bounced_at': '2026-10-26T07:43:00+00:00',
+            'delete_after': '2026-11-02T07:42:00+00:00',
+        }))
+        notice = self.client.get(self.path).json()['notice']
+        assert notice['variant'] == 'bounced'
+        assert notice['delete_after'] == '2026-11-02T07:42:00Z'
+
+    def test_anonymous(self):
+        self.client.logout()
+        assert self.client.get(self.path).status_code == status.HTTP_401_UNAUTHORIZED
