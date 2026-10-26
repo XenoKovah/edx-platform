@@ -202,6 +202,9 @@ from common.djangoapps.pipeline_mako import render_require_js_path_overrides
     <%block name="skip_links"/>
     <a class="nav-skip sr-only sr-only-focusable" href="#main">${_("Skip to main content")}</a>
 
+    ## OST2: above the site header, where the learner MFEs show the same notice.
+    <%include file="/account_activation_notice.html" />
+
     % if not disable_header:
         <%include file="${static.get_template_path('header.html')}" args="online_help_token=online_help_token" />
         <%include file="/preview_menu.html" />

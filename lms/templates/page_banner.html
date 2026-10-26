@@ -5,71 +5,11 @@
 <%namespace name='static' file='static_content.html'/>
 <% online_help_token = self.online_help_token() if hasattr(self, 'online_help_token') else None %>
 <%!
-from datetime import timezone
-
-from django.conf import settings
-from django.urls import reverse
-from django.utils.dateformat import format as format_date
 from django.utils.translation import gettext as _
-from openedx.core.djangolib.js_utils import js_escaped_string
-from openedx.core.djangolib.markup import HTML, Text
-from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
-from openedx.core.djangoapps.user_authn.activation_notice import (
-    NOTICE_BOUNCED,
-    NOTICE_EMAIL_CHANGE_PENDING,
-    get_account_activation_notice,
-)
+from openedx.core.djangolib.markup import HTML
 from openedx.core.djangoapps.util.user_messages import PageLevelMessages, UserMessage, UserMessageType
 # app that handles site status messages
 from common.djangoapps.status.status import get_site_status_msg
-
-
-def account_activation_message(notice):
-    """
-    OST2: the banner for a signed-in user whose account is not activated yet. The learner MFEs show the same
-    notice (tutor-indigo's account-activation banner); keep the wording of the two in step.
-    """
-    account_url = configuration_helpers.get_value('ACCOUNT_MICROFRONTEND_URL', settings.ACCOUNT_MICROFRONTEND_URL)
-    email_url = (account_url or '').rstrip('/') + '/#email'
-    bold = lambda text: HTML('<strong>{}</strong>').format(text)
-    link = lambda text: HTML('<a href="{url}">{text}</a>').format(url=email_url, text=text)
-    deletion = ''
-    if notice['delete_after']:
-        deletion = Text(_('Unless you do, your account will be deleted on or after {date}.')).format(
-            date=bold(format_date(notice['delete_after'].astimezone(timezone.utc), 'F j, Y')),
-        )
-
-    if notice['variant'] == NOTICE_EMAIL_CHANGE_PENDING:
-        title = _('Confirm your new email address')
-        body = Text(_(
-            'We sent a confirmation link to {pending_email}. Click it to change your email address and '
-            'activate your account. {deletion}'
-        )).format(pending_email=bold(notice['pending_email']), deletion=deletion)
-        actions = link(_('Use a different address'))
-    elif notice['variant'] == NOTICE_BOUNCED:
-        title = _('Your activation email bounced')
-        body = Text(_(
-            "We couldn't deliver your activation email to {email}: that address doesn't exist, maybe because of "
-            "a typo. Change your email address to activate your account. {deletion}"
-        )).format(email=bold(notice['email']), deletion=deletion)
-        actions = link(_('Change your email address'))
-    else:
-        title = _('Activate your account')
-        body = Text(_(
-            "Your account isn't activated yet, so once you sign out you can't sign back in. To activate it, click "
-            "the link in the email we sent to {email}. Can't find it? Check your spam folder."
-        )).format(email=bold(notice['email']))
-        actions = Text('{resend} {change} {status}').format(
-            resend=HTML(
-                '<button type="button" class="btn btn-link ost2-activation-resend" data-url="{url}">{text}</button>'
-            ).format(url=reverse('send_account_activation_email'), text=_('Resend activation email')),
-            change=link(_('Wrong address? Change it')),
-            status=HTML('<span class="ost2-activation-resend-status" role="status"></span>'),
-        )
-    # One block next to the alert's icon (.alert is a flex row).
-    return HTML(
-        '<div class="message-content"><div class="message-header">{title}</div><p>{body}</p><p>{actions}</p></div>'
-    ).format(title=title, body=body, actions=actions)
 %>
 
 <%
@@ -80,16 +20,6 @@ course_id = course.id if course else None
 site_status_message = get_site_status_msg(course_id)
 if site_status_message:
     banner_messages.insert(0, UserMessage(UserMessageType.WARNING, site_status_message))
-
-# Not on pages without the site header, e.g. a unit in the learning MFE's iframe: the MFE shows its own banner.
-activation_notice = None
-if getattr(request, 'user', None) and not context.get('disable_header'):
-    activation_notice = get_account_activation_notice(request.user)
-if activation_notice:
-    banner_messages.insert(0, UserMessage(
-        UserMessageType.ERROR if activation_notice['bounced'] else UserMessageType.WARNING,
-        account_activation_message(activation_notice),
-    ))
 %>
 
 % if banner_messages:
@@ -107,33 +37,4 @@ if activation_notice:
             </ul>
         </div>
     </div>
-% endif
-% if activation_notice:
-<script>
-  (function () {
-    var button = document.querySelector('.ost2-activation-resend');
-    if (!button) { return; }
-    var status = document.querySelector('.ost2-activation-resend-status');
-    button.addEventListener('click', function () {
-      button.disabled = true;
-      status.textContent = '${_("Sending...") | n, js_escaped_string}';
-      fetch(button.getAttribute('data-url'), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'X-CSRFToken': '${csrf_token | n, js_escaped_string}'},
-      }).then(function (response) {
-        if (response.ok) {
-          status.textContent = '${_("Sent! Check your inbox and spam folder.") | n, js_escaped_string}';
-        } else if (response.status === 429) {
-          status.textContent = '${_("You asked for several emails today. Check your spam folder, or try again tomorrow.") | n, js_escaped_string}';
-        } else {
-          throw new Error(response.status);
-        }
-      }).catch(function () {
-        button.disabled = false;
-        status.textContent = '${_("Something went wrong. Please try again.") | n, js_escaped_string}';
-      });
-    });
-  }());
-</script>
 % endif

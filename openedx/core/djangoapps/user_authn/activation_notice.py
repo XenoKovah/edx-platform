@@ -6,7 +6,7 @@ account is activated (see views/login.py). So every page tells them, until they 
 email went and how to fix a wrong address. This module decides what the notice says; two surfaces show it:
 
 * the learner MFEs (tutor-indigo's account-activation banner), through the ``account_activation_notice`` API;
-* the LMS's own pages (lms/templates/page_banner.html).
+* the LMS's own pages, above the site header (lms/templates/account_activation_notice.html).
 
 ost2-tutor-plugins' host-scripts/ost2_bounce_delete.py records a bounced activation email in the
 ``ost2_activation_bounce`` user preference, a JSON object

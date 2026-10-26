@@ -1,0 +1,125 @@
+## mako
+
+<%page expression_filter="h"/>
+
+<%!
+from datetime import timezone
+
+from django.conf import settings
+from django.urls import reverse
+from django.utils.dateformat import format as format_date
+from django.utils.translation import gettext as _
+from openedx.core.djangolib.js_utils import js_escaped_string
+from openedx.core.djangolib.markup import HTML, Text
+from openedx.core.djangoapps.site_configuration import helpers as configuration_helpers
+from openedx.core.djangoapps.user_authn.activation_notice import (
+    NOTICE_BOUNCED,
+    NOTICE_EMAIL_CHANGE_PENDING,
+    get_account_activation_notice,
+)
+
+# Paragon's WarningFilled and Error icons, which the learner MFEs' notice shows.
+WARNING_ICON_PATH = 'M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'
+ERROR_ICON_PATH = 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z'
+%>
+
+<%
+# OST2: the notice for a signed-in user whose account is not activated yet, at the top of every LMS page, above the
+# site header. The learner MFEs show the same notice in the same place (tutor-indigo's account-activation banner);
+# keep the wording of the two in step. Not on pages without the site header, e.g. a unit in the learning MFE's
+# iframe: the MFE shows its own notice.
+notice = None
+if getattr(request, 'user', None) and not context.get('disable_header'):
+    notice = get_account_activation_notice(request.user)
+%>
+
+% if notice:
+<%
+account_url = configuration_helpers.get_value('ACCOUNT_MICROFRONTEND_URL', settings.ACCOUNT_MICROFRONTEND_URL)
+email_url = (account_url or '').rstrip('/') + '/#email'
+bold = lambda text: HTML('<strong>{}</strong>').format(text)
+deletion = ''
+if notice['delete_after']:
+    deletion = Text(_('Unless you do, your account will be deleted on or after {date}.')).format(
+        date=bold(format_date(notice['delete_after'].astimezone(timezone.utc), 'F j, Y')),
+    )
+
+can_resend = False
+if notice['variant'] == NOTICE_EMAIL_CHANGE_PENDING:
+    title = _('Confirm your new email address')
+    body = Text(_(
+        'We sent a confirmation link to {pending_email}. Click it to change your email address and '
+        'activate your account. {deletion}'
+    )).format(pending_email=bold(notice['pending_email']), deletion=deletion)
+    change_label = _('Use a different address')
+elif notice['variant'] == NOTICE_BOUNCED:
+    title = _('Your activation email bounced')
+    body = Text(_(
+        "We couldn't deliver your activation email to {email}: that address doesn't exist, maybe because of "
+        "a typo. Change your email address to activate your account. {deletion}"
+    )).format(email=bold(notice['email']), deletion=deletion)
+    change_label = _('Change your email address')
+else:
+    title = _('Activate your account')
+    body = Text(_(
+        "Your account isn't activated yet, so once you sign out you can't sign back in. To activate it, click "
+        "the link in the email we sent to {email}. Can't find it? Check your spam folder."
+    )).format(email=bold(notice['email']))
+    change_label = _('Wrong address? Change it')
+    can_resend = True
+%>
+<div class="ost2-activation-banner">
+    <div class="ost2-activation-alert ost2-activation-alert-${'danger' if notice['bounced'] else 'warning'}" role="alert">
+        <svg class="ost2-activation-icon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="${ERROR_ICON_PATH if notice['bounced'] else WARNING_ICON_PATH}"></path>
+        </svg>
+        <div class="ost2-activation-content">
+            <div class="ost2-activation-heading">${title}</div>
+            <p>${body}</p>
+            % if can_resend:
+                <p class="ost2-activation-resend-status" role="status"></p>
+            % endif
+            <div class="ost2-activation-actions">
+                % if can_resend:
+                    <button type="button" class="ost2-activation-btn ost2-activation-btn-primary ost2-activation-resend" data-url="${reverse('send_account_activation_email')}">${_('Resend activation email')}</button>
+                % endif
+                <a class="ost2-activation-btn ost2-activation-btn-outline" href="${email_url}">${change_label}</a>
+            </div>
+        </div>
+    </div>
+</div>
+% if can_resend:
+<script>
+  (function () {
+    var button = document.querySelector('.ost2-activation-resend');
+    var status = document.querySelector('.ost2-activation-resend-status');
+    // Like the MFEs' resend button: its label tells how the sending went; a problem gets a line of its own.
+    var tryAgain = function (message) {
+      button.disabled = false;
+      button.textContent = '${_("Resend activation email") | n, js_escaped_string}';
+      status.textContent = message;
+    };
+    button.addEventListener('click', function () {
+      button.disabled = true;
+      button.textContent = '${_("Sending...") | n, js_escaped_string}';
+      status.textContent = '';
+      fetch(button.getAttribute('data-url'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'X-CSRFToken': '${csrf_token | n, js_escaped_string}'},
+      }).then(function (response) {
+        if (response.ok) {
+          button.textContent = '${_("Sent! Check your inbox and spam folder.") | n, js_escaped_string}';
+        } else if (response.status === 429) {
+          tryAgain('${_("You asked for several emails today. Check your spam folder, or try again tomorrow.") | n, js_escaped_string}');
+        } else {
+          throw new Error(response.status);
+        }
+      }).catch(function () {
+        tryAgain('${_("Something went wrong. Please try again.") | n, js_escaped_string}');
+      });
+    });
+  }());
+</script>
+% endif
+% endif

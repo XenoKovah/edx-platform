@@ -5,6 +5,7 @@ Tests for the notice shown to signed-in users whose account is not activated yet
 import json
 from datetime import datetime, timezone
 
+from crum import set_current_request
 from django.contrib.auth.models import AnonymousUser, User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.test import RequestFactory, TestCase
 
@@ -112,17 +113,26 @@ class AccountActivationNoticeTest(TestCase):
 
 
 @skip_unless_lms
-class AccountActivationPageBannerTest(TestCase):
+class AccountActivationBannerTest(TestCase):
     """
-    The LMS's own pages show the notice in their page banner.
+    The LMS's own pages show the notice above the site header.
     """
 
     def render_banner(self, user, **context):
         request = RequestFactory().get('/courses')
         request.user = user
         return render_to_string(
-            'page_banner.html', {'request': request, 'course': None, 'csrf_token': 'token', **context}
+            'account_activation_notice.html', {'request': request, 'csrf_token': 'token', **context}
         )
+
+    def test_above_the_site_header(self):
+        request = RequestFactory().get('/404')
+        request.user = UserFactory(is_active=False)
+        set_current_request(request)
+        self.addCleanup(set_current_request, None)
+        html = render_to_string('static_templates/404.html', {}, request=request)  # a whole page
+        assert '<div class="ost2-activation-banner">' in html
+        assert html.index('<div class="ost2-activation-banner">') < html.index('<header class="global-header')
 
     def test_no_banner_for_active_users(self):
         assert 'Activate your account' not in self.render_banner(UserFactory())
@@ -135,13 +145,14 @@ class AccountActivationPageBannerTest(TestCase):
 
     def test_unactivated(self):
         html = self.render_banner(UserFactory(email='learner@example.com', is_active=False))
-        assert '<div class="message-header">Activate your account</div><p>Your account isn&#39;t activated' in html
+        assert '<div class="ost2-activation-heading">Activate your account</div>' in html
+        assert '<p>Your account isn&#39;t activated yet' in html
         assert '&lt;' not in html
         assert '<strong>learner@example.com</strong>' in html
         assert 'Resend activation email' in html
         assert '/api/send_account_activation_email' in html
         assert 'href="http://account-mfe/#email"' in html
-        assert 'alert-warning' in html
+        assert 'ost2-activation-alert-warning' in html
 
     def test_bounced(self):
         user = UserFactory(email='learner@example.com', is_active=False)
@@ -154,7 +165,7 @@ class AccountActivationPageBannerTest(TestCase):
         assert '<strong>November 2, 2026</strong>' in html
         assert 'Change your email address' in html
         assert 'Resend activation email' not in html
-        assert 'alert-danger' in html
+        assert 'ost2-activation-alert-danger' in html
 
     def test_pending_email_change(self):
         user = UserFactory(email='learner@example.com', is_active=False)
