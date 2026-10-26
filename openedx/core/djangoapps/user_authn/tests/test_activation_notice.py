@@ -110,13 +110,19 @@ class AccountActivationPageBannerTest(TestCase):
     The LMS's own pages show the notice in their page banner.
     """
 
-    def render_banner(self, user):
+    def render_banner(self, user, **context):
         request = RequestFactory().get('/courses')
         request.user = user
-        return render_to_string('page_banner.html', {'request': request, 'course': None, 'csrf_token': 'token'})
+        return render_to_string('page_banner.html', {'request': request, 'course': None, 'csrf_token': 'token', **context})
 
     def test_no_banner_for_active_users(self):
         assert 'Activate your account' not in self.render_banner(UserFactory())
+
+    def test_no_banner_on_pages_without_the_site_header(self):
+        # e.g. a unit rendered into the learning MFE's iframe, under the MFE's own banner
+        html = self.render_banner(UserFactory(is_active=False), disable_header=True)
+        assert 'Activate your account' not in html
+        assert 'ost2-activation-resend' not in html
 
     def test_unactivated(self):
         html = self.render_banner(UserFactory(email='learner@example.com', is_active=False))

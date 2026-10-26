@@ -81,7 +81,10 @@ site_status_message = get_site_status_msg(course_id)
 if site_status_message:
     banner_messages.insert(0, UserMessage(UserMessageType.WARNING, site_status_message))
 
-activation_notice = get_account_activation_notice(request.user) if getattr(request, 'user', None) else None
+# Not on pages without the site header, e.g. a unit in the learning MFE's iframe: the MFE shows its own banner.
+activation_notice = None
+if getattr(request, 'user', None) and not context.get('disable_header'):
+    activation_notice = get_account_activation_notice(request.user)
 if activation_notice:
     banner_messages.insert(0, UserMessage(
         UserMessageType.ERROR if activation_notice['bounced'] else UserMessageType.WARNING,
