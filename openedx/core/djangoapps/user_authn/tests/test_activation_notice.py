@@ -5,7 +5,7 @@ Tests for the notice shown to signed-in users whose account is not activated yet
 import json
 from datetime import datetime, timezone
 
-from django.contrib.auth.models import AnonymousUser
+from django.contrib.auth.models import AnonymousUser, User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.test import RequestFactory, TestCase
 
 from common.djangoapps.edxmako.shortcuts import render_to_string
@@ -51,6 +51,13 @@ class AccountActivationNoticeTest(TestCase):
             'bounced': False,
             'delete_after': None,
         }
+
+    def test_reads_the_account_afresh(self):
+        # e.g. on the page that confirms an email change, which activates the account through another instance
+        User.objects.filter(pk=self.user.pk).update(email='learner@example.org')
+        assert get_account_activation_notice(self.user)['email'] == 'learner@example.org'
+        User.objects.filter(pk=self.user.pk).update(is_active=True)
+        assert get_account_activation_notice(self.user) is None
 
     def test_bounced(self):
         self.set_bounce(address='Learner@Example.com')
@@ -113,7 +120,9 @@ class AccountActivationPageBannerTest(TestCase):
     def render_banner(self, user, **context):
         request = RequestFactory().get('/courses')
         request.user = user
-        return render_to_string('page_banner.html', {'request': request, 'course': None, 'csrf_token': 'token', **context})
+        return render_to_string(
+            'page_banner.html', {'request': request, 'course': None, 'csrf_token': 'token', **context}
+        )
 
     def test_no_banner_for_active_users(self):
         assert 'Activate your account' not in self.render_banner(UserFactory())

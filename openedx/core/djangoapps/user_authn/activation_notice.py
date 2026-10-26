@@ -19,6 +19,7 @@ import json
 import logging
 from datetime import timezone
 
+from django.contrib.auth.models import User  # lint-amnesty, pylint: disable=imported-auth-user
 from django.utils.dateparse import parse_datetime
 
 from common.djangoapps.student.models import PendingEmailChange
@@ -48,8 +49,13 @@ def get_account_activation_notice(user):
     """
     if not user.is_authenticated or user.is_active:
         return None
+    # The request's user can be out of date: the page that confirms an email change activates the account
+    # through another instance of the user, and shows the notice too.
+    current = User.objects.filter(pk=user.pk).values('is_active', 'email').first()
+    if current is None or current['is_active']:
+        return None
 
-    bounce = _get_activation_bounce(user)
+    bounce = _get_activation_bounce(user, current['email'])
     pending_email = PendingEmailChange.objects.filter(user=user).values_list('new_email', flat=True).first()
     if pending_email:
         variant = NOTICE_EMAIL_CHANGE_PENDING
@@ -59,7 +65,7 @@ def get_account_activation_notice(user):
         variant = NOTICE_UNACTIVATED
     return {
         'variant': variant,
-        'email': user.email,
+        'email': current['email'],
         'pending_email': pending_email,
         'bounced': bounce is not None,
         'delete_after': bounce['delete_after'] if bounce else None,
@@ -73,10 +79,10 @@ def clear_activation_bounce(user):
     UserPreference.objects.filter(user=user, key=ACTIVATION_BOUNCE_PREF_KEY).delete()
 
 
-def _get_activation_bounce(user):
+def _get_activation_bounce(user, email):
     """
-    Returns {'delete_after': aware datetime or None} when the activation email to the user's current address
-    bounced, else None. A preference for another address (one the user has since changed away from) or one that
+    Returns {'delete_after': aware datetime or None} when the activation email to the user's current address,
+    `email`, bounced, else None. A preference for another address (one the user has since changed away from) or one that
     cannot be read counts as no bounce.
     """
     value = UserPreference.objects.filter(
@@ -92,7 +98,7 @@ def _get_activation_bounce(user):
     except (ValueError, TypeError, KeyError):
         log.warning('Ignoring unreadable %s preference of user %s', ACTIVATION_BOUNCE_PREF_KEY, user.id)
         return None
-    if not isinstance(address, str) or address.lower() != user.email.lower():
+    if not isinstance(address, str) or address.lower() != email.lower():
         return None
     if delete_after is not None and delete_after.tzinfo is None:
         delete_after = delete_after.replace(tzinfo=timezone.utc)
