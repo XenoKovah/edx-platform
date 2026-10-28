@@ -462,9 +462,13 @@ class TestEnrollmentSerializer(LearnerDashboardBaseTest):
 class TestGradeDataSerializer(LearnerDashboardBaseTest):
     """Tests for the GradeDataSerializer"""
 
-    def create_test_context(self, course, is_passing):
+    def create_test_context(self, course, is_passing, has_graded_content=True):
         """Get a test context object"""
-        return {"grade_statuses": {course.id: is_passing}}
+        return {
+            "grade_statuses": {course.id: is_passing},
+            "grade_percents": {course.id: 0.25},
+            "graded_content_statuses": {course.id: has_graded_content},
+        }
 
     @ddt.data(True, False, None)
     def test_happy_path(self, is_passing):
@@ -480,6 +484,36 @@ class TestGradeDataSerializer(LearnerDashboardBaseTest):
             output_data,
             {
                 "isPassing": is_passing,
+                "percentGraded": 0.25,
+                "hasGradedContent": True,
+            },
+        )
+
+    def test_ungraded_course(self):
+        # Given a course with nothing that counts toward its grade
+        input_data = self.create_test_enrollment()
+        input_context = self.create_test_context(input_data.course, False, has_graded_content=False)
+
+        # When I serialize grade data
+        output_data = GradeDataSerializer(input_data, context=input_context).data
+
+        # Then the course is flagged as having no graded content
+        assert output_data["hasGradedContent"] is False
+
+    def test_defaults_without_context(self):
+        # Given no grade context for the course
+        input_data = self.create_test_enrollment()
+
+        # When I serialize grade data
+        output_data = GradeDataSerializer(input_data, context={}).data
+
+        # Then the course counts as graded, so the dashboard keeps its grade line
+        self.assertDictEqual(
+            output_data,
+            {
+                "isPassing": False,
+                "percentGraded": None,
+                "hasGradedContent": True,
             },
         )
 

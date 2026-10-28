@@ -10,6 +10,7 @@ from completion.utilities import get_key_to_last_completed_block
 from django.conf import settings
 from django.urls import reverse
 from edx_django_utils import monitoring as monitoring_utils
+from edx_django_utils.cache import TieredCache, get_cache_key
 from edx_django_utils.monitoring import function_trace
 from edx_rest_framework_extensions.auth.jwt.authentication import JwtAuthentication
 from edx_rest_framework_extensions.auth.session.authentication import (
@@ -64,6 +65,7 @@ from openedx.features.enterprise_support.api import (
     enterprise_customer_from_session_or_learner_data,
     get_enterprise_learner_data_from_db,
 )
+from xmodule.modulestore.django import modulestore
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +475,60 @@ def get_user_grade_percents(course_enrollments):
     }
 
 
+GRADED_CONTENT_CACHE_TIMEOUT = 24 * 60 * 60
+
+
+def course_has_graded_content(course_overview):
+    """
+    Whether anything in the course counts toward its grade: a graded subsection
+    whose assignment type has a weight above zero.
+
+    Setup and reference courses have no such subsection, so a learner can never
+    reach their passing grade and the dashboard should not show one.
+
+    The answer is cached per course, keyed on the overview's modified time. Every
+    publish (including a grading-policy save) rebuilds the overview, so a change
+    in Studio is picked up without waiting for the timeout. An unknown course
+    counts as graded, which keeps the dashboard's existing behavior.
+    """
+    if course_overview is None:
+        return True
+    cache_key = get_cache_key(
+        prefix="learner_home.has_graded_content",
+        course_key=str(course_overview.id),
+        modified=course_overview.modified.isoformat(),
+    )
+    cached = TieredCache.get_cached_response(cache_key)
+    if cached.is_found:
+        return cached.value
+
+    store = modulestore()
+    course = store.get_course(course_overview.id, depth=0)
+    if course is None:
+        return True
+    weights = {grader.get("type"): grader.get("weight", 0) for grader in course.raw_grader}
+    has_graded_content = any(
+        subsection.graded and weights.get(subsection.format, 0) > 0
+        for subsection in store.get_items(course_overview.id, qualifiers={"category": "sequential"})
+    )
+    TieredCache.set_all_tiers(cache_key, has_graded_content, GRADED_CONTENT_CACHE_TIMEOUT)
+    return has_graded_content
+
+
+@function_trace("get_graded_content_statuses")
+def get_graded_content_statuses(course_enrollments):
+    """
+    Get whether each enrolled course has anything that counts toward its grade.
+
+    Returns:
+    - Dict {course_id: <boolean (False = nothing in the course is graded)>}
+    """
+    return {
+        course_enrollment.course_id: course_has_graded_content(course_enrollment.course_overview)
+        for course_enrollment in course_enrollments
+    }
+
+
 @function_trace("get_credit_statuses")
 def get_credit_statuses(user, course_enrollments):
     """
@@ -559,6 +615,9 @@ class InitializeView(APIView):  # pylint: disable=unused-argument
         # Get current grade percent by course
         grade_percents = get_user_grade_percents(course_enrollments)
 
+        # Get whether each course has anything graded at all
+        graded_content_statuses = get_graded_content_statuses(course_enrollments)
+
         # Get cert status by course
         cert_statuses = get_cert_statuses(user, course_enrollments)
 
@@ -605,6 +664,7 @@ class InitializeView(APIView):  # pylint: disable=unused-argument
             "credit_statuses": user_credit_statuses,
             "grade_statuses": grade_statuses,
             "grade_percents": grade_percents,
+            "graded_content_statuses": graded_content_statuses,
             "resume_course_urls": resume_button_urls,
             "course_share_urls": course_share_urls,
             "show_email_settings_for": show_email_settings_for,

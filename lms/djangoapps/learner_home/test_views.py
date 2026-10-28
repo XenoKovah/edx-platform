@@ -30,6 +30,7 @@ from lms.djangoapps.learner_home.test_utils import (
     random_url,
 )
 from lms.djangoapps.learner_home.views import (
+    course_has_graded_content,
     get_course_overviews_for_pseudo_sessions,
     get_course_programs,
     get_email_settings_info,
@@ -47,6 +48,7 @@ from openedx.core.djangoapps.catalog.tests.factories import (
     CourseRunFactory as CatalogCourseRunFactory,
     ProgramFactory,
 )
+from openedx.core.djangoapps.content.course_overviews.models import CourseOverview
 from openedx.core.djangoapps.content.course_overviews.tests.factories import (
     CourseOverviewFactory,
 )
@@ -55,7 +57,7 @@ from xmodule.modulestore.tests.django_utils import (
     TEST_DATA_SPLIT_MODULESTORE,
     SharedModuleStoreTestCase,
 )
-from xmodule.modulestore.tests.factories import CourseFactory
+from xmodule.modulestore.tests.factories import BlockFactory, CourseFactory
 
 
 ENTERPRISE_ENABLED = "ENABLE_ENTERPRISE_INTEGRATION"
@@ -368,6 +370,76 @@ class TestGetEmailSettingsInfo(SharedModuleStoreTestCase):
             {optout.course_id for optout in optouts},
             set(course_optouts),
         )
+
+
+class TestCourseHasGradedContent(SharedModuleStoreTestCase):
+    """Tests for course_has_graded_content"""
+
+    ZERO_WEIGHT_POLICY = {
+        "GRADER": [
+            {"type": "Timing Feedback", "short_label": "TF", "min_count": 1, "drop_count": 0, "weight": 0.0},
+        ],
+        "GRADE_CUTOFFS": {"Pass": 0.5},
+    }
+
+    def create_subsection(self, chapter, subsection_format=None):
+        """Add a published subsection, graded in the given format if one is given."""
+        return BlockFactory.create(
+            parent=chapter,
+            category="sequential",
+            graded=subsection_format is not None,
+            format=subsection_format,
+        )
+
+    def create_course(self, subsection_format=None, **course_kwargs):
+        """Create a course with one subsection. Return the course and its chapter."""
+        course = CourseFactory.create(**course_kwargs)
+        chapter = BlockFactory.create(parent=course, category="chapter")
+        self.create_subsection(chapter, subsection_format)
+        return course, chapter
+
+    def test_graded_subsection(self):
+        # Given a subsection graded as Homework, which the default policy weights
+        course, _ = self.create_course(subsection_format="Homework")
+
+        # Then the course has graded content
+        assert course_has_graded_content(CourseOverview.get_from_id(course.id)) is True
+
+    def test_no_graded_subsection(self):
+        # Given a course whose only subsection is ungraded
+        course, _ = self.create_course()
+
+        # Then the course has no graded content
+        assert course_has_graded_content(CourseOverview.get_from_id(course.id)) is False
+
+    def test_zero_weight_assignment_type(self):
+        # Given a graded subsection whose assignment type carries no weight
+        course, _ = self.create_course(subsection_format="Timing Feedback", grading_policy=self.ZERO_WEIGHT_POLICY)
+
+        # Then nothing counts toward the grade
+        assert course_has_graded_content(CourseOverview.get_from_id(course.id)) is False
+
+    def test_missing_overview(self):
+        # A missing course overview counts as graded, keeping the dashboard's grade line
+        assert course_has_graded_content(None) is True
+
+    def test_cached_until_republished(self):
+        # Given an ungraded course whose answer is already cached
+        course, chapter = self.create_course()
+        overview = CourseOverview.get_from_id(course.id)
+        assert course_has_graded_content(overview) is False
+
+        # When I ask again without a publish, the modulestore is not read
+        with patch("lms.djangoapps.learner_home.views.modulestore") as mock_modulestore:
+            assert course_has_graded_content(overview) is False
+            mock_modulestore.assert_not_called()
+
+        # When a graded subsection is published and the overview rebuilt
+        self.create_subsection(chapter, "Homework")
+        overview = CourseOverview.load_from_module_store(course.id)
+
+        # Then the new answer is computed
+        assert course_has_graded_content(overview) is True
 
 
 class TestGetSuggestedCourses(SharedModuleStoreTestCase):
